@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.11.1 — admit the existing native runtime
+
+- Admit Hermes 0.21.5 development installs that satisfy the existing gateway contracts, with the exact older runtime added to Linux/macOS CI. The 0.22.2 metadata floor previously blocked native installation despite passing the runtime contract check.
+- Keep the pre-credential contract checks and native installer. No host version override, Hermes core update or profile configuration change is needed.
+
 ## 0.11.0 — delivery compatibility and operational robustness
 
 - Route cron identity through the public PluginContext API; isolate and check the legacy queue/tool correlation seams before secrets or network. Keep existing queue delivery working without patching Hermes.

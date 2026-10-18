@@ -2,7 +2,7 @@
 import importlib.util
 
 
-MINIMUM_HERMES = "0.22.2"
+MINIMUM_HERMES = "0.21.5"
 
 
 def missing_contracts():

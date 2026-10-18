@@ -1,11 +1,11 @@
 name: sowork-platform
 label: SoWork
 kind: platform
-version: 0.11.0
+version: 0.11.1
 description: Private SoWork DM gateway with media, isolated threads and optional private previews.
 author: Bruno / Jumper Studio
 license: MIT
-requires_hermes: ">=0.22.2"
+requires_hermes: ">=0.21.5"
 platforms: [linux, macos]
 requires_env:
   - name: SOWORK_USERNAME

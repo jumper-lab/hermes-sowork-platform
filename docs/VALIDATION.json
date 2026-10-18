@@ -14,7 +14,7 @@
     {
       "name": "requires_hermes",
       "ok": true,
-      "detail": "spec '>=0.22.2' parses"
+      "detail": "spec '>=0.21.5' parses"
     },
     {
       "name": "config schema",
@@ -73,13 +73,14 @@
     }
   ],
   "warnings": [
-    "private core imports (catalog rule 9: public surfaces only; these can break on any release): sowork/adapter.py:16 gateway.session.SessionSource; sowork/admin.py:26 hermes_cli.managed_scope.get_managed_dir; sowork/admin.py:32 hermes_yaml.safe_load; sowork/hermes_compat.py:12 cron.delivery_queue; sowork/hermes_compat.py:14 tools.browser_extension_router; sowork/hermes_compat.py:36 tools.browser_extension_router.current_tool_call_id; sowork/hermes_compat.py:49 cron.scheduler_delivery._resolve_delivery_targets; sowork/lock.py:8 gateway.status._get_lock_dir; sowork/preview_probe.py:50 hermes_cli.auth.PROVIDER_REGISTRY; sowork/preview_probe.py:51 agent.turn_api_call._should_stream; and 8 more. Use ctx.* / documented plugin APIs, or open an issue for the seam you need."
+    "private core imports (catalog rule 9: public surfaces only; these can break on any release): build/lib/sowork/adapter.py:16 gateway.session.SessionSource; build/lib/sowork/adapter.py:554 tools.browser_extension_router.current_tool_call_id; build/lib/sowork/admin.py:26 hermes_cli.managed_scope.get_managed_dir; build/lib/sowork/admin.py:32 hermes_yaml.safe_load; build/lib/sowork/client.py:199 tools.url_safety.create_ssrf_safe_async_client; build/lib/sowork/lock.py:8 gateway.status._get_lock_dir; build/lib/sowork/preview_probe.py:50 hermes_cli.auth.PROVIDER_REGISTRY; build/lib/sowork/preview_probe.py:51 agent.turn_api_call._should_stream; build/lib/sowork/proactive.py:63 cron.delivery_queue; build/lib/sowork/proactive.py:64 cron.scheduler_delivery._resolve_delivery_targets; and 28 more. Use ctx.* / documented plugin APIs, or open an issue for the seam you need."
   ],
   "isolation": {
     "verdict": "in_process",
     "host_ready": false,
     "reasons": [
       "kind 'platform': gateway platform adapters run in the Hermes process",
+      "build/lib/sowork/plugin.py:40 ctx.register_platform(): platform adapters run on the gateway's event loop with native SDK clients",
       "sowork/plugin.py:43 ctx.register_platform(): platform adapters run on the gateway's event loop with native SDK clients"
     ],
     "notes": [

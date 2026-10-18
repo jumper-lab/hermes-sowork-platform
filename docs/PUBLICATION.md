@@ -60,7 +60,7 @@ or production migration was performed for this preparation.
 1. Review the fresh export, its manifest and validation report.
 2. The independent repository has been created and the reviewed source published. The preparation scripts themselves do not publish or deploy.
 3. Run GitHub CI and native `hermes plugins validate --install-deps` against that repository's exact commit.
-4. Prepare a community catalog entry (`category: platform`, `platforms: [linux, macos]`, `requires_hermes: ">=0.22.2"`) with the real repository URL and a full 40-character commit SHA. Declare the three credential names and no model tools/hooks/middleware.
+4. Prepare a community catalog entry (`category: platform`, `platforms: [linux, macos]`, `requires_hermes: ">=0.21.5"`) with the real repository URL and a full 40-character commit SHA. Declare the three credential names and no model tools/hooks/middleware.
 5. Disclose network/storage/background behavior and any validator cautions/private-import warnings. A passing local validator does not waive maintainer review.
 
 Missing public API contracts (native voice-note presentation, buttons, permanent edit/delete and reaction events) remain documented limitations, not hidden claims. The bounded reaction test is experimental, opt-in and never approves an action.
