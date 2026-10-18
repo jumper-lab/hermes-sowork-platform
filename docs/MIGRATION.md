@@ -14,3 +14,13 @@ For a later operator-authorized migration:
 `maintenance apply`, `maintenance rollback` and `release` were private operator commands and are intentionally absent. A direct offline `--home` inspection is not a credential-loading mechanism; `check-connection` must run through Hermes with the intended profile active.
 
 The public package exports no deployment controller, SSH launcher, production identifiers, credential files or private history. Do not publish the old pilot repository's Git history.
+
+## 0.11 journal retirement
+
+The additive schema upgrade keeps current queued work, cursor and receipts. Once
+cleanup retires completed payloads, only 0.11-or-newer compatible code understands
+the compact replay barriers. Do not downgrade to 0.10/0.9 against that cleaned
+journal or leave old plugin workers running against it. Recover with compatible
+code and operator reconciliation; never restore an old database/cursor to make
+a downgrade appear to work. Retired payloads are intentionally not recoverable
+from the compact digest. Existing private installations are not upgraded here.
