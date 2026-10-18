@@ -15,7 +15,7 @@ Implemented admission changes:
 ## 0.11 robustness validation
 
 Python 3.14.7, in a fresh Hermes PM environment with dev/test groups and the native
-messaging extra: 226 tests passed against each pinned Hermes revision. This
+messaging extra: 230 tests passed against each pinned Hermes revision. This
 includes a separate `hermes gateway run` child, synthetic active-profile secrets,
 a loopback SoWork REST/SSE server and a local scripted model. The tests exercise
 single-human admission, same-thread delivery, HTTP idempotency after ambiguous

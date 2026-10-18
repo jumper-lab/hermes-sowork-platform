@@ -120,26 +120,27 @@ class Store:
         with self.db:
             self._set_meta("last_cleanup", stamp)  # Acquire the writer lock before selecting.
             turns = [r[0] for r in self.db.execute("""
-                SELECT message_id FROM inbox WHERE status IN ('complete','cancelled','rejected')
-                    AND finished < ?
-                UNION
-                SELECT turn_id FROM outbox GROUP BY turn_id
-                    HAVING max(created) < ? AND max(COALESCE(delivered,?)) < ?
-                LIMIT ?""", (cutoff, cutoff, stamp, cutoff, limit))]
+                WITH candidates(turn_id) AS (
+                    SELECT message_id FROM inbox WHERE status IN ('complete','cancelled','rejected')
+                        AND finished < ?
+                    UNION
+                    SELECT turn_id FROM outbox GROUP BY turn_id
+                        HAVING max(created) < ? AND max(COALESCE(delivered,?)) < ?
+                )
+                SELECT c.turn_id FROM candidates c
+                WHERE NOT EXISTS (SELECT 1 FROM inbox i WHERE i.message_id=c.turn_id
+                    AND (i.status NOT IN ('complete','cancelled','rejected') OR i.finished IS NULL OR i.finished>=?))
+                AND NOT EXISTS (SELECT 1 FROM outbox o WHERE o.turn_id=c.turn_id
+                    AND (o.status!='sent' OR o.delivered IS NULL OR o.delivered>=?))
+                AND NOT EXISTS (SELECT 1 FROM visuals v WHERE v.turn_id=c.turn_id)
+                AND NOT EXISTS (SELECT 1 FROM uploads u WHERE u.attachment IS NULL
+                    AND substr(u.logical_id,1,length(c.turn_id)+1)=c.turn_id||':')
+                LIMIT ?""", (cutoff, cutoff, stamp, cutoff, cutoff, cutoff, limit))]
             removed = 0
             for turn in turns:
-                if self.db.execute("""SELECT 1 FROM inbox WHERE message_id=?
-                        AND (status NOT IN ('complete','cancelled','rejected') OR finished IS NULL OR finished>=?)
-                        UNION ALL SELECT 1 FROM outbox WHERE turn_id=? AND (status!='sent' OR delivered IS NULL OR delivered>=?)
-                        UNION ALL SELECT 1 FROM visuals WHERE turn_id=?""",
-                        (turn, cutoff, turn, cutoff, turn)).fetchone():
-                    continue
                 prefix = turn + ":"
                 uploads = [r[0] for r in self.db.execute(
                     "SELECT logical_id FROM uploads WHERE substr(logical_id,1,?)=?", (len(prefix), prefix))]
-                if any(self.db.execute("SELECT attachment FROM uploads WHERE logical_id=?", (key,)).fetchone()[0]
-                       is None for key in uploads):
-                    continue
                 sends = [r[0] for r in self.db.execute("SELECT logical_id FROM outbox WHERE turn_id=?", (turn,))]
                 batches = [r[0] for r in self.db.execute(
                     "SELECT logical_id FROM outbox_batches WHERE substr(logical_id,1,?)=?", (len(prefix), prefix))]

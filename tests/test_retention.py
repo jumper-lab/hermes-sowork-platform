@@ -132,3 +132,20 @@ def test_cleanup_failure_rolls_back_payload_removal_and_replay_barriers(tmp_path
     assert store.db.execute("SELECT count(*) FROM retired").fetchone()[0] == 0
     assert not store.ingest("duplicate", raw, "accepted")
     store.close()
+
+
+@pytest.mark.parametrize("protected", ["pending", "visual", "unfinished_upload", "failed"])
+def test_protected_work_does_not_starve_cleanup_batch(tmp_path, protected):
+    store = Store(tmp_path / "state.db", "install:sub")
+    add(store, "a-protected", "failed" if protected == "failed" else "complete")
+    add(store, "z-eligible")
+    if protected == "pending":store.prepare_messages("a-protected", 0, "dm", [{"text": "pending"}])
+    if protected == "visual":store.begin_visual("a-protected")
+    if protected == "unfinished_upload":store.upload("a-protected:0:upload", "fingerprint")
+    if protected == "failed":
+        store.prepare_messages("a-protected", 0, "dm", [{"text": "failure notice"}])
+        store.sent("a-protected:0:0", {"id": "receipt"})
+        store.db.execute("UPDATE outbox SET created=1,delivered=1");store.db.commit()
+    assert store.prune(now=HISTORY_SECONDS + 2, limit=1)["turns"] == 1
+    assert store.db.execute("SELECT message_id FROM inbox").fetchone()[0] == "a-protected"
+    store.close()
