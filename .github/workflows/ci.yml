@@ -1,5 +1,9 @@
 name: Plugin compatibility
-on: [push, pull_request, workflow_dispatch]
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
 permissions:
   contents: read
 jobs:
@@ -38,4 +42,4 @@ jobs:
         working-directory: hermes-runtime
         env:
           HERMES_PYTHON: ${{ runner.temp }}/hermes-tests/bin/python
-        run: scripts/run-in-hermes-env hermes plugins validate "$RUNNER_TEMP/sowork-public" --install-deps --json
+        run: '"$HERMES_PYTHON" -m hermes_cli.main plugins validate "$RUNNER_TEMP/sowork-public" --install-deps --json'
