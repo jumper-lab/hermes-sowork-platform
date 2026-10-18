@@ -52,52 +52,21 @@ def validate_target(chat_id):
         return False
 
 
-def _queued_execution(home, metadata):
-    """Attest a restart-safe worker result claimed by THIS native gateway process.
-
-    The native queue drain currently does not bind current_cron_execution(). Read its
-    existing ownership fence instead; never accept a model-supplied job/execution ID.
-    No queue state is changed here. Ambiguous/unowned/foreign-profile rows fail closed.
-    """
-    import json
-    from cron import delivery_queue
-    from cron.scheduler_delivery import _resolve_delivery_targets
-
-    path = delivery_queue.queue_path()
-    if path.resolve() != home / "cron" / "deliveries.db" or not path.is_file():
-        return None
-    with delivery_queue._lock:
-        active = tuple(delivery_queue._ACTIVE_DELIVERIES)
-    matches = []
-    for execution_id in active:
-        row = delivery_queue.get_status(execution_id)
-        if (not row or row["status"] != "delivering" or row["owner_pid"] != os.getpid()
-                or row["owner_process_id"] != delivery_queue._PROCESS_ID):
-            continue
-        job = json.loads(row["job_json"])
-        if job.get("execution_id") != execution_id or ((metadata or {}).get("job_id") not in (None, job["id"])):
-            continue
-        targets = _resolve_delivery_targets(job, for_failure=bool(row["for_failure"]))
-        matches.append((job["id"], execution_id, targets))
-    return matches[0] if len(matches) == 1 else None
-
-
-def operation(home, metadata=None, *, channel_id=None, thread_id=None):
+def operation(home, metadata=None, *, host, channel_id=None, thread_id=None):
     """Only executor-bound identity is accepted; payload/metadata cannot mint it."""
     from agent.secret_scope import current_secret_scope_home
-    from cron.execution_identity import current_cron_execution
     from hermes_cli.profiles import current_profile_name
     from tools.approval_context import get_current_session_key
-    from tools.browser_extension_router import current_tool_call_id
+    from .hermes_compat import tool_call_id, queued_execution
 
     home = Path(home).resolve()
     scoped_home = current_secret_scope_home()
     if get_hermes_home().resolve() != home or (scoped_home and Path(scoped_home).resolve() != home):
         raise SoWorkError(403, "proactive_profile_mismatch")
-    execution = current_cron_execution()
+    execution = host.current_cron_execution()
     if execution and execution.profile != current_profile_name("default"):
         raise SoWorkError(403, "proactive_execution_profile_mismatch")
-    call_id = current_tool_call_id()
+    call_id = tool_call_id()
     if call_id:
         session = get_current_session_key("")
         if not session:
@@ -106,7 +75,7 @@ def operation(home, metadata=None, *, channel_id=None, thread_id=None):
     elif execution and execution.execution_id and execution.job_id:
         identity = ["cron", execution.job_id, execution.execution_id]
     else:
-        queued = _queued_execution(home, metadata)
+        queued = queued_execution(home, metadata)
         if not queued or not any(t.get("platform") == "sowork" and t.get("chat_id") == channel_id
                                  and (t.get("thread_id") or None) == thread_id for t in queued[2]):
             raise SoWorkError(403, "proactive_execution_identity_required")
@@ -125,7 +94,7 @@ def authorized(adapter, chat_id, metadata=None, reply_to=None):
         raise SoWorkError(403, "proactive_destination_denied")
     if adapter._is_sender_authorized(adapter.settings.allowed_user_id, "dm", chat_id) is not True:
         raise SoWorkError(403, "gateway_acl_denied")
-    return operation(adapter._home, metadata, channel_id=chat_id, thread_id=root)
+    return operation(adapter._home, metadata, host=adapter.host, channel_id=chat_id, thread_id=root)
 
 
 @asynccontextmanager
@@ -149,7 +118,7 @@ async def lease(store, identity):
         os.close(fd)  # Never unlink a lock inode while another process can be waiting.
 
 
-async def standalone_send(config, chat_id, message, *, thread_id=None, media_files=None, force_document=False):
+async def standalone_send(config, chat_id, message, *, host, thread_id=None, media_files=None, force_document=False):
     """Native PlatformEntry standalone_sender_fn; credentials come from the active profile."""
     from gateway.config import Platform, load_gateway_config
     from .adapter import SoWorkAdapter
@@ -165,8 +134,8 @@ async def standalone_send(config, chat_id, message, *, thread_id=None, media_fil
                 or not enabled(config, settings) or Settings.from_extra(current.extra) != settings
                 or chat_id != settings.channel_id or (thread_id and not settings.threads_enabled)):
             raise SoWorkError(403, "proactive_destination_denied")
-        operation(get_hermes_home(), channel_id=chat_id, thread_id=thread_id)  # No credential lookup/network before the identity gate.
-        adapter = SoWorkAdapter(config)
+        operation(get_hermes_home(), host=host, channel_id=chat_id, thread_id=thread_id)  # No credential lookup/network before the identity gate.
+        adapter = SoWorkAdapter(config, host=host)
         adapter.set_authorization_check(lambda user, kind, chat: (
             user == settings.allowed_user_id and kind == "dm" and chat == settings.channel_id
             and enabled(current, settings)))
@@ -182,10 +151,10 @@ async def standalone_send(config, chat_id, message, *, thread_id=None, media_fil
         if thread_id:
             await verify_dm(adapter)
         # Match native live send_message caption placement; cron always sends text and files separately.
-        from tools.browser_extension_router import current_tool_call_id
+        from .hermes_compat import tool_call_id, queued_execution
         from tools.send_message_tool import _media_caption_split, _DEFAULT_CAPTION_LIMIT
         caption, text = (_media_caption_split(message, media_files or [], max_caption_len=_DEFAULT_CAPTION_LIMIT)
-                         if current_tool_call_id() else (None, message))
+                         if tool_call_id() else (None, message))
         result = None
         if text and text.strip():
             result = await adapter.send(chat_id, text, metadata=metadata)

@@ -7,7 +7,7 @@ import shutil
 
 ROOT_FILES = ('__init__.py', 'plugin.yaml', 'pyproject.toml', 'soworkctl.py',
               'README.md', 'LICENSE', 'CHANGELOG.md', 'SECURITY.md', '.gitignore', 'MANIFEST.in')
-DOCS = ('COMPATIBILITY.md', 'MIGRATION.md', 'PUBLICATION.md', 'VALIDATION.json')
+DOCS = ('COMPATIBILITY.md', 'MIGRATION.md', 'PUBLICATION.md', 'VALIDATION.json', 'HERMES-API-PROPOSAL.md')
 SCRIPTS = ('verify.py', 'export_public.py')
 
 

@@ -20,3 +20,19 @@ The current public stable/main cores reject streaming for external-process provi
 ## Supported access and hosts
 
 One explicit human and one private DM; optional threads under that DM. No wildcard or multi-user mode. POSIX locks support Linux/macOS. Python 3.11–3.14 is admitted by package metadata; only tested combinations may be claimed as verified. No test requires real tokens or a running production gateway.
+
+## Delivery identity boundary (0.11)
+
+Adapters and standalone senders receive the PluginContext at registration and use
+`ctx.current_cron_execution()`. No process-wide execution identity is cached.
+The two pinned Hermes queue drains do not bind that public context during worker
+result delivery. `sowork/hermes_compat.py` retains the existing ownership-attested
+fallback in one place and checks its callable signatures/ownership primitives
+before adapter construction. Metadata cannot mint an execution identity.
+A missing contract stops startup before credentials/network; it never disables an
+authorization check or silently starts a second consumer. The compatibility layer
+is not a claim that these remaining internals became public APIs.
+
+The full gateway process suite also exercises native durable admission. Transport
+flags stay on the local MessageEvent object because native admission deliberately
+rejects arbitrary metadata. No host whitelist, prompt or core source is modified.

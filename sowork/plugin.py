@@ -1,6 +1,7 @@
 """Hermes discovery entry: passive probes and no core schema additions."""
 from dataclasses import fields
 import importlib.util
+from functools import partial
 
 from .config import Credentials, Settings
 
@@ -18,11 +19,13 @@ def configured(config):
         return False
 
 
-def build_adapter(config):
+def build_adapter(config, *, host=None):
     from .runtime import require_supported_runtime
     require_supported_runtime()
     from .adapter import SoWorkAdapter
-    return SoWorkAdapter(config)
+    if not callable(getattr(host, "current_cron_execution", None)):
+        raise RuntimeError("SoWork requires PluginContext.current_cron_execution")
+    return SoWorkAdapter(config, host=host)
 
 
 def register(ctx):
@@ -38,11 +41,11 @@ def register(ctx):
     if "display_tier" in supported:
         optional["display_tier"] = "minimal"
     ctx.register_platform(
-        name="sowork", label="SoWork", adapter_factory=build_adapter,
+        name="sowork", label="SoWork", adapter_factory=partial(build_adapter, host=ctx),
         check_fn=requirements, validate_config=configured, is_connected=configured,
         # The adapter persists and splits the complete payload itself. Native pre-splitting
         # would lose ordinals for identical adjacent chunks on delivery retry.
-        max_message_length=0, standalone_sender_fn=standalone_send,
+        max_message_length=0, standalone_sender_fn=partial(standalone_send, host=ctx),
         parse_target_ref_fn=parse_target, validate_target_ref_fn=validate_target,
         allow_update_command=False, emoji="💬",
         platform_hint=(

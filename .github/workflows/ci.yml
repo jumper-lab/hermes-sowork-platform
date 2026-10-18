@@ -33,11 +33,14 @@ jobs:
           persist-credentials: false
       - name: Build isolated native test environment
         working-directory: hermes-runtime
-        run: python -m pm.build_env --source . --out "$RUNNER_TEMP/hermes-tests" --group dev --group test
+        run: python -m pm.build_env --source . --out "$RUNNER_TEMP/hermes-tests" --group dev --group test --extra messaging
       - name: Export clean public source
         run: python scripts/export_public.py --output "$RUNNER_TEMP/sowork-public"
       - name: Native gateway and plugin tests
         run: python "$RUNNER_TEMP/sowork-public/scripts/verify.py" --hermes hermes-runtime --venv "$RUNNER_TEMP/hermes-tests" --output "$RUNNER_TEMP/results"
+      - name: Test failure details
+        if: failure()
+        run: cat "$RUNNER_TEMP/results/tests.log"
       - name: Catalog admission and dependency validation
         working-directory: hermes-runtime
         env:
