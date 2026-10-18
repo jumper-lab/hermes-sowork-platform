@@ -1,6 +1,6 @@
 # Publication readiness
 
-This is a local publication candidate, not an uploaded repository, accepted catalog entry or production upgrade.
+The independent source is published at [jumper-lab/hermes-sowork-platform](https://github.com/jumper-lab/hermes-sowork-platform). [GitHub CI](https://github.com/jumper-lab/hermes-sowork-platform/actions/workflows/ci.yml) checks the published commits. This is not yet an accepted catalog entry or a production upgrade.
 
 The public source export intentionally excludes private pilot history, deployment controllers, operator evidence, production identifiers, credentials, self-updaters and runtime patchers. Preserve private operational records separately; publish the fresh export rather than pushing the pilot Git history.
 
@@ -31,7 +31,7 @@ integration. This is disclosed review debt, not a promise that future versions
 are compatible. The validator also correctly classifies the platform as running
 inside the gateway process, not an isolated plugin host.
 
-GitHub CI has not run before publication. Production acceptance of the older
+GitHub CI results are linked above and remain separate from local evidence. Production acceptance of the older
 private deployment is historical evidence only and is not presented as a new
 candidate activation. No SSH, credential read, gateway command, allowlist change
 or production migration was performed for this preparation.
@@ -39,7 +39,7 @@ or production migration was performed for this preparation.
 ## Submission sequence
 
 1. Review the fresh export, its manifest and validation report.
-2. Create the independent repository and publish the reviewed source. These external publication actions are not performed by the preparation scripts.
+2. The independent repository has been created and the reviewed source published. The preparation scripts themselves do not publish or deploy.
 3. Run GitHub CI and native `hermes plugins validate --install-deps` against that repository's exact commit.
 4. Prepare a community catalog entry (`category: platform`, `platforms: [linux, macos]`, `requires_hermes: ">=0.22.2"`) with the real repository URL and a full 40-character commit SHA. Declare the three credential names and no model tools/hooks/middleware.
 5. Disclose network/storage/background behavior and any validator cautions/private-import warnings. A passing local validator does not waive maintainer review.

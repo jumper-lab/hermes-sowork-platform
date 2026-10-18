@@ -1,5 +1,7 @@
 # SoWork platform for Hermes
 
+[![Plugin compatibility](https://github.com/jumper-lab/hermes-sowork-platform/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/jumper-lab/hermes-sowork-platform/actions/workflows/ci.yml)
+
 An independent Hermes gateway plugin for **one explicitly authorized human and one private SoWork DM**, including threads in that DM. Uses installation OAuth, REST delivery and SSE with cursor recovery. No new model tools or prompt changes during a conversation.
 
 ## Supported scope
@@ -65,7 +67,7 @@ The plugin connects to `api.sowork.com` and API-issued signed attachment storage
 
 ## Development and publication
 
-Use `scripts/verify.py` with a supported Hermes checkout and its prepared test interpreter; it delegates to Hermes' canonical test runner in a disposable source/profile copy. [CI](.github/workflows/ci.yml) exercises pinned stable/current commits on Linux and macOS. CI execution on GitHub requires publishing the repository; local results are recorded separately in [publication readiness](docs/PUBLICATION.md).
+Use `scripts/verify.py` with a supported Hermes checkout and its prepared test interpreter; it delegates to Hermes' canonical test runner in a disposable source/profile copy. [CI](https://github.com/jumper-lab/hermes-sowork-platform/actions/workflows/ci.yml) exercises pinned stable/current commits on Linux and macOS. Local results are recorded separately in [publication readiness](docs/PUBLICATION.md).
 
 ```sh
 python scripts/verify.py --hermes /path/to/hermes --venv /path/to/test-venv --output /tmp/sowork-results

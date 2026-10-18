@@ -13,7 +13,7 @@ jobs:
           - e868508f5d341bc8dcaa827eb1d61c45ad14ddca
     runs-on: ${{ matrix.os }}
     env:
-      HERMES_HOME: ${{ runner.temp }}/hermes-profile
+      HERMES_HOME: ${{ github.workspace }}/.ci-profile
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
