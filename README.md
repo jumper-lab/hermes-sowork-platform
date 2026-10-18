@@ -16,7 +16,7 @@ Audio is delivered as an attachment, not a native voice-note UI. Interactive but
 
 ## Requirements
 
-- Hermes **0.22.2 or newer**, subject to the gateway contract check (`check-runtime`). See [compatibility](docs/COMPATIBILITY.md) for exact tested commits.
+- Hermes **0.21.5 or newer**, subject to the gateway contract check (`check-runtime`). See [compatibility](docs/COMPATIBILITY.md) for exact tested commits.
 - Linux or macOS; Python 3.11–3.14. Windows is not supported because the plugin uses POSIX file locks.
 - An existing SoWork app installation, an exclusive inbox-only subscription, and an explicitly confirmed human/DM binding. This plugin never creates subscriptions or expands scopes.
 

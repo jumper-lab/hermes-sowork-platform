@@ -13,6 +13,7 @@ jobs:
       matrix:
         os: [ubuntu-latest, macos-latest]
         hermes:
+          - 79af3f6cea8067284a7ea5725078578b3f790adb
           - d923a5eb487a17c0a68801bba9ef0f56c81040a8
           - e868508f5d341bc8dcaa827eb1d61c45ad14ddca
     runs-on: ${{ matrix.os }}

@@ -1,11 +1,12 @@
 # Compatibility
 
-The publication candidate targets Hermes 0.22.2 and newer with the required native gateway contracts. The version floor is metadata; `check-runtime` also checks actual contracts before adapter construction, credentials or network. An old 0.20.5 checkout is intentionally refused rather than partially starting and later failing during delivery.
+The plugin targets Hermes 0.21.5 and newer with the required native gateway contracts. The version floor is metadata; `check-runtime` also checks actual contracts before adapter construction, credentials or network. An old 0.20.5 checkout is intentionally refused rather than partially starting and later failing during delivery.
 
 Validation targets are immutable public commits:
 
 | Target | Commit |
 |---|---|
+| Hermes 0.21.5 development runtime | `79af3f6cea8067284a7ea5725078578b3f790adb` |
 | Hermes v0.22.2 | `d923a5eb487a17c0a68801bba9ef0f56c81040a8` |
 | Public main inspected on 2026-10-18 | `e868508f5d341bc8dcaa827eb1d61c45ad14ddca` |
 
@@ -25,7 +26,7 @@ One explicit human and one private DM; optional threads under that DM. No wildca
 
 Adapters and standalone senders receive the PluginContext at registration and use
 `ctx.current_cron_execution()`. No process-wide execution identity is cached.
-The two pinned Hermes queue drains do not bind that public context during worker
+The pinned Hermes queue drains do not bind that public context during worker
 result delivery. `sowork/hermes_compat.py` retains the existing ownership-attested
 fallback in one place and checks its callable signatures/ownership primitives
 before adapter construction. Metadata cannot mint an execution identity.
