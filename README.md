@@ -59,15 +59,22 @@ Baseline scopes: `chat.dm`, `chat.write`, `events.subscribe:chat.direct_message_
 
 Use **Hermes' native plugin installer/updater**, pinned to the reviewed commit. There is no plugin self-update, package apply or code rollback command in this distribution. Existing privately managed installations are not automatically converted or restarted. See [migration and recovery](docs/MIGRATION.md).
 
-Inbox/cursor and immutable outbox state live inside the owning profile. A claimed input interrupted by a crash becomes uncertain and is not replayed into tools. Ambiguous sends preserve their original idempotency key/body. Retention gaps and old pending deliveries require operator reconciliation; there is no general exactly-once guarantee. Never restore an old cursor to force a replay or roll back the database with the code.
+Inbox/cursor and immutable outbox state live inside the owning profile.
+Hourly bounded cleanup removes terminal payloads older than 30 days. Queued,
+claimed, failed, uncertain and pending-delivery records, unfinished uploads and
+visuals, and thread routes are preserved. Compact SHA-256 replay barriers remain:
+retired inputs cannot invoke the agent again, and a retired outbound operation
+requires reconciliation instead of posting again. Those digests and routing/review
+records still grow with use; cleanup bounds retained completed payloads, not the
+entire database. SQLite reuses freed pages without an automatic VACUUM. A claimed input interrupted by a crash becomes uncertain and is not replayed into tools. Ambiguous sends preserve their original idempotency key/body. Retention gaps and old pending deliveries require operator reconciliation; there is no general exactly-once guarantee. Never restore an old cursor to force a replay or roll back the database with the code.
 
 ## Operational disclosure
 
-The plugin connects to `api.sowork.com` and API-issued signed attachment storage URLs. It keeps OAuth access tokens in memory, uses a separate unauthenticated storage client and rejects redirects. It runs a background SSE receiver and optional bounded visual/reaction tasks. Media is cached under the profile; inbox/outbox contain conversation data and delivery receipts. Local diagnostics read this profile's config, gateway snapshot and relevant SQLite routing/state metadata. Preview compatibility invokes a credential-free temporary Python child and loads installed provider code; it does not call a model. The adapter and proactive sender depend on Hermes gateway/scheduler contracts checked by the compatibility suite. No telemetry is added.
+The plugin connects to `api.sowork.com` and API-issued signed attachment storage URLs. It keeps OAuth access tokens in memory, uses a separate unauthenticated storage client and rejects redirects. It runs a background SSE receiver and optional bounded visual/reaction tasks. Media is cached under the profile; inbox/outbox contain conversation data and delivery receipts. Local diagnostics read this profile's config, gateway snapshot and relevant SQLite routing/state metadata. Preview compatibility invokes a credential-free temporary Python child and loads installed provider code; it does not call a model. The adapter uses the public PluginContext cron identity API. The supported Hermes queue drain still needs a checked compatibility fallback; see the [upstream API proposal](docs/HERMES-API-PROPOSAL.md). Other gateway/provider seams remain version-sensitive and are checked by the compatibility suite. No telemetry is added.
 
 ## Development and publication
 
-Use `scripts/verify.py` with a supported Hermes checkout and its prepared test interpreter; it delegates to Hermes' canonical test runner in a disposable source/profile copy. [CI](https://github.com/jumper-lab/hermes-sowork-platform/actions/workflows/ci.yml) exercises pinned stable/current commits on Linux and macOS. Local results are recorded separately in [publication readiness](docs/PUBLICATION.md).
+Use `scripts/verify.py` with a supported Hermes checkout and its prepared test interpreter (dev/test groups and the native messaging extra for the shared process harness); it delegates to Hermes' canonical test runner in a disposable source/profile copy. [CI](https://github.com/jumper-lab/hermes-sowork-platform/actions/workflows/ci.yml) exercises pinned stable/current commits on Linux and macOS, including a real gateway child, a loopback SoWork REST/SSE server and a scripted local model. The endpoint redirect exists only in the child test shim; production has no alternate API setting. Local results are recorded separately in [publication readiness](docs/PUBLICATION.md).
 
 ```sh
 python scripts/verify.py --hermes /path/to/hermes --venv /path/to/test-venv --output /tmp/sowork-results

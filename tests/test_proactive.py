@@ -138,7 +138,7 @@ async def test_expired_uncertain_send_is_not_reposted(adapter):
     enable(adp)
     native = importlib.import_module(type(adp).__module__)
     with execution():
-        identity = native.proactive.operation(adp._home)
+        identity = native.proactive.operation(adp._home, host=adp.host)
         adp.store.prepare_messages(identity, "text", "dm", [{"text": "old uncertain response"}])
         with adp.store.db:
             adp.store.db.execute("UPDATE outbox SET created=?", (time.time() - 3601,))

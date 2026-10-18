@@ -17,6 +17,9 @@ def missing_contracts():
     for method in ("_event_session_key", "supports_draft_streaming"):
         if not hasattr(BasePlatformAdapter, method):
             missing.append("BasePlatformAdapter." + method)
+    if not missing:
+        from .hermes_compat import missing_delivery_contracts
+        missing.extend(missing_delivery_contracts())
     return missing
 
 

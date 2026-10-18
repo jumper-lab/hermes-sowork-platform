@@ -12,7 +12,26 @@ Implemented admission changes:
 - MIT license, operational disclosure, installation/migration documentation, synthetic tests and pinned CI.
 - Optional preview reflects native core/provider support; no automatic core/provider patch.
 
-## Local validation results
+## 0.11 robustness validation
+
+Python 3.14.7, in a fresh Hermes PM environment with dev/test groups and the native
+messaging extra: 230 tests passed against each pinned Hermes revision. This
+includes a separate `hermes gateway run` child, synthetic active-profile secrets,
+a loopback SoWork REST/SSE server and a local scripted model. The tests exercise
+single-human admission, same-thread delivery, HTTP idempotency after ambiguous
+acceptance, reconnect cursor, a real file-tool result, gateway restart without
+repeating the tool turn, and `/stop` retiring the thread preview. SQLite tests
+cover old-schema migration, indexed reads, hourly bounded cleanup, transactional
+rollback, unresolved record preservation and replay prevention after retirement.
+
+The clean export passed native catalog admission with dependency installation:
+14 checks, security scan safe, no core override. The remaining private-import
+warning is explicit; the checked queue fallback still needs the proposed generic
+upstream context propagation before it can be removed. See
+[proposal](HERMES-API-PROPOSAL.md). No production profile/gateway was accessed.
+The PR's exact-commit GitHub CI is the independent Linux/macOS verification.
+
+## 0.10 local validation results
 
 Local Mac validation passed 202 tests against each pinned Hermes target with
 Python 3.11.15. A new Python 3.14.7 environment built through Hermes PM also passed all

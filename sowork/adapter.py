@@ -48,8 +48,9 @@ class SoWorkAdapter(BasePlatformAdapter):
     # boundaries. This draft never counts as durable delivery: only send() does.
     draft_stream_is_message = True
 
-    def __init__(self, config, *, client=None, store=None):
+    def __init__(self, config, *, host, client=None, store=None):
         super().__init__(config, Platform("sowork"))
+        self.host = host
         self.settings = Settings.from_extra(config.extra)
         self._home = get_hermes_home().resolve()
         self.credentials = client.credentials if client else Credentials.from_scope(self.settings.credential_env)
@@ -223,7 +224,6 @@ class SoWorkAdapter(BasePlatformAdapter):
             raw_message=message,
             message_type=(MessageType.DOCUMENT if message.get("attachments") else MessageType.TEXT),
             message_id=message["id"], timestamp=datetime.fromtimestamp(event["createdAt"], timezone.utc),
-            metadata={"sowork_event_id": event["id"], "sowork_installation_id": self.credentials.installation_id},
             internal=False, allow_gateway_control=True,
         )
         if self.settings.media_enabled and not normalized.is_command():
@@ -320,16 +320,18 @@ class SoWorkAdapter(BasePlatformAdapter):
                     self.store.finish(event.message_id, "rejected")
                     return
                 await threads.hydrate(self, event)
-                event.metadata["sowork_thread_ready"] = True
+                # Transport bookkeeping is process-local. Native Hermes admission
+                # accepts a closed metadata schema; never smuggle flags into it.
+                event._sowork_thread_ready = True
                 if self.settings.media_enabled:
                     await receive_media(self, event)
-                event.metadata["sowork_media_ready"] = True
-                event.metadata["sowork_input_ids"] = [event.message_id]
+                event._sowork_media_ready = True
+                event._sowork_input_ids = [event.message_id]
                 key = self._event_session_key(event)
                 pending = self._pending_messages.get(key)
                 await self.handle_message(event)
                 if pending is not None and self._pending_messages.get(key) is pending:
-                    pending.metadata.setdefault("sowork_input_ids", [pending.message_id]).append(event.message_id)
+                    pending._sowork_input_ids = [*getattr(pending, "_sowork_input_ids", [pending.message_id]), event.message_id]
         except asyncio.CancelledError:
             self.store.finish(event.message_id, "cancelled")
             raise
@@ -346,14 +348,14 @@ class SoWorkAdapter(BasePlatformAdapter):
         _turn.set(Turn(event.message_id, thread_id=event.source.thread_id))
         if not self._authorized_turn(event.source.chat_id):
             return
-        if not event.metadata.get("sowork_thread_ready"):
+        if not getattr(event, "_sowork_thread_ready", False):
             await threads.hydrate(self, event)
         if self.settings.reactions_enabled or self.settings.progress_enabled or self.settings.preview_enabled:
             self.store.begin_visual(event.message_id)
             feedback = Feedback(self, event.message_id, thread_id=event.source.thread_id)
             self._feedback[event.message_id] = feedback
             feedback.task = asyncio.create_task(feedback.start())
-        if self.settings.media_enabled and not event.metadata.get("sowork_media_ready"):
+        if self.settings.media_enabled and not getattr(event, "_sowork_media_ready", False):
             await receive_media(self, event)
 
     async def _dispatch_active_session_command(self, event, session_key, cmd):
@@ -372,7 +374,7 @@ class SoWorkAdapter(BasePlatformAdapter):
 
     async def on_processing_complete(self, event, outcome):
         status = {ProcessingOutcome.SUCCESS: "complete", ProcessingOutcome.FAILURE: "failed", ProcessingOutcome.CANCELLED: "cancelled"}[outcome]
-        for message_id in event.metadata.get("sowork_input_ids", [event.message_id]):
+        for message_id in getattr(event, "_sowork_input_ids", [event.message_id]):
             self.store.finish(message_id, status)
         turn = _turn.get()
         if turn and turn.message_id == event.message_id:
@@ -551,9 +553,8 @@ class SoWorkAdapter(BasePlatformAdapter):
             # permanent preview. The consumer can still send its completed final.
             return SendResult(False, error="Permanent messages are not editable", error_kind="unsupported")
         turn = _turn.get()
-        from tools.browser_extension_router import current_tool_call_id
-        from cron.execution_identity import current_cron_execution
-        if current_tool_call_id() or current_cron_execution() or not self._authorized_turn(chat_id):
+        from .hermes_compat import tool_call_id
+        if tool_call_id() or self.host.current_cron_execution() or not self._authorized_turn(chat_id):
             try:
                 identity = proactive.authorized(self, chat_id, metadata, reply_to)
                 if not content:
@@ -598,9 +599,8 @@ class SoWorkAdapter(BasePlatformAdapter):
         return SendResult(True, message_id=receipts[-1]["id"], continuation_message_ids=tuple(r["id"] for r in receipts[:-1]))
 
     async def _send_file(self, chat_id, path, caption=None, *, file_name=None, metadata=None, reply_to=None):
-        from tools.browser_extension_router import current_tool_call_id
-        from cron.execution_identity import current_cron_execution
-        is_proactive = bool(current_tool_call_id() or current_cron_execution() or not self._authorized_turn(chat_id))
+        from .hermes_compat import tool_call_id
+        is_proactive = bool(tool_call_id() or self.host.current_cron_execution() or not self._authorized_turn(chat_id))
         if not self.settings.media_enabled:
             return SendResult(False, error="Media delivery is not authorized", error_kind="forbidden")
         try:

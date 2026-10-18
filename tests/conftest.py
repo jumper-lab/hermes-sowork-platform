@@ -22,3 +22,7 @@ def plugin_home(tmp_path, monkeypatch):
     manager.discover_and_load()
     yield home
     manager.unload()
+
+
+def pytest_configure(config):
+    config.addinivalue_line("markers", "spawns_gateway_lookalike: starts only a disposable test gateway")
