@@ -1,0 +1,17 @@
+name: sowork-platform
+label: SoWork
+kind: platform
+version: 0.10.0
+description: Private SoWork DM gateway with media, isolated threads and optional private previews.
+author: Bruno / Jumper Studio
+license: MIT
+requires_hermes: ">=0.22.2"
+platforms: [linux, macos]
+requires_env:
+  - name: SOWORK_USERNAME
+    description: SoWork installation OAuth client ID, resolved by Hermes.
+  - name: SOWORK_CREDENTIAL
+    description: SoWork installation OAuth client secret, resolved by Hermes.
+    password: true
+  - name: SOWORK_INSTALLATION_ID
+    description: SoWork installation ID, resolved by Hermes.

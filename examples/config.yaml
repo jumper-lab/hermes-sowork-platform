@@ -1,0 +1,23 @@
+# Merge into the intended Hermes profile; preserve all existing entries.
+plugins:
+  enabled: [sowork-platform]
+platforms:
+  sowork:
+    enabled: true
+    extra:
+      subscription_id: "EXCLUSIVE_SUBSCRIPTION_ID"
+      workspace_id: "CONFIRMED_WORKSPACE_ID"
+      app_user_id: "CONFIRMED_APP_USER_ID"
+      allowed_user_id: "CONFIRMED_HUMAN_ID"
+      channel_id: "CONFIRMED_DM_ID"
+      allow_from: ["CONFIRMED_HUMAN_ID"]
+      media_enabled: true
+      reactions_enabled: false
+      progress_enabled: false
+      proactive_enabled: false
+      threads_enabled: false
+      preview_enabled: false
+      reaction_probe_enabled: false
+      max_attachment_bytes: 26214400
+# Preview is optional. Enable it only when existing global streaming is compatible,
+# and configure display.platforms.sowork.streaming without changing other platforms.
