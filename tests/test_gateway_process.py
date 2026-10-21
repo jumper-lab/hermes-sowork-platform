@@ -1,7 +1,9 @@
 """Full Hermes process + installed plugin + real loopback REST/SSE/model calls."""
 from pathlib import Path
+import json
 import shutil
 import tempfile
+import time
 from types import SimpleNamespace
 from uuid import uuid4
 
@@ -52,6 +54,22 @@ def send(rig, token, *, root=None, text=None, expected=None):
     wait_until(lambda: any((expected or "reply to " + token) in m["body"].get("text", "") for m in rig.api.visible()),
                f"SoWork response {token}", timeout=45, on_timeout=rig.gw.tail)
     return event
+
+
+def test_diagnostics_verify_real_gateway_profile_and_legacy_snapshot(rig, monkeypatch):
+    from sowork.diagnostics import gateway_summary
+    home = rig.gw.hermes_home
+    path = home / "gateway_state.json"
+    snapshot = json.loads(path.read_text())
+    snapshot.pop("hermes_home", None)  # Native operational releases omit this field.
+    read_text = Path.read_text
+    with monkeypatch.context() as patch:
+        patch.setattr(Path, "read_text", lambda target, *a, **k:
+                      json.dumps(snapshot) if target == path else read_text(target, *a, **k))
+        report = gateway_summary(home, time.time())
+        assert report["fresh"] and report["state"] == "connected"
+        snapshot["hermes_home"] = str(home.parent / "foreign")
+        assert gateway_summary(home, time.time())["state"] == "unknown"
 
 
 def test_real_gateway_dm_acl_thread_routes_retry_and_reconnect(rig):

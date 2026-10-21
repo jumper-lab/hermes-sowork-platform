@@ -60,8 +60,9 @@ def test_offline_inspection_never_resolves_secrets_or_creates_state(profile, mon
     assert {str(p): p.read_bytes() for p in home.iterdir()} == before
 
 
-def test_fatal_receiver_is_reported_as_fatal_in_fresh_native_snapshot(profile):
+def test_fatal_receiver_is_reported_as_fatal_in_fresh_native_snapshot(profile, monkeypatch):
     home, _ = profile
+    monkeypatch.setattr("gateway.status.get_runtime_status_running_pid", lambda data, *, expected_home: os.getpid())
     (home / "gateway_state.json").write_text(json.dumps({
         "pid": os.getpid(), "hermes_home": str(home),
         "platforms": {"sowork": {"state": "fatal"}},
@@ -108,14 +109,27 @@ def test_multiple_state_scopes_and_corruption_require_review_without_repair(prof
     assert (directory / "a.sqlite3").read_text() == "broken state"
 
 
-def test_gateway_snapshot_needs_live_pid_own_home_and_freshness(profile):
+def test_gateway_snapshot_needs_live_pid_own_home_and_freshness(profile, monkeypatch):
     home, _ = profile
+    def native_identity(data, *, expected_home):
+        assert expected_home == home
+        return os.getpid() if data.get("hermes_home") == str(home) else None
+    monkeypatch.setattr("gateway.status.get_runtime_status_running_pid", native_identity)
     path = home / "gateway_state.json"
     state = {"pid": os.getpid(), "hermes_home": str(home), "platforms": {"sowork": {"state": "connected"}}}
     path.write_text(json.dumps(state))
     assert diagnostics.gateway_summary(home, time.time())["state"] == "connected"
     assert diagnostics.gateway_summary(home, time.time()+121)["state"] == "unknown"
     state["hermes_home"] = "another-profile";path.write_text(json.dumps(state))
+    assert diagnostics.gateway_summary(home, time.time())["state"] == "unknown"
+
+
+def test_gateway_snapshot_requires_native_process_identity_even_when_pid_exists(profile, monkeypatch):
+    home, _ = profile
+    (home / "gateway_state.json").write_text(json.dumps({
+        "pid": os.getpid(), "hermes_home": str(home), "platforms": {"sowork": {"state": "connected"}},
+    }))
+    monkeypatch.setattr("gateway.status.get_runtime_status_running_pid", lambda data, *, expected_home: None)
     assert diagnostics.gateway_summary(home, time.time())["state"] == "unknown"
 
 

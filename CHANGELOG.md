@@ -7,6 +7,7 @@
 - Merge only this profile's SoWork connection, display overrides and three native secret references, preserving other configuration and comments with checksum review and private backups. Do not change global streaming, model, memory, secrets files or other profiles. Activation uses Hermes' native gateway lifecycle; setup itself starts no receiver/model and sends no chat messages.
 - Test native 1Password hydration with a synthetic authenticated executable, real loopback HTTP, pairing origin checks, restart-free configuration, cancellation/recovery, active-consumer locks and concurrent config protection. Exercise the full native CLI through a disposable terminal.
 - Use dependency-only metadata and directory discovery so separate profiles can retain different releases without colliding in the shared Python workspace. Let setup collect native secret references instead of asking for raw credentials during installation.
+- Verify diagnostic snapshot ownership with Hermes' native process identity resolver, including native snapshots without a home stamp. Reject stale, foreign or unverified processes instead of trusting a live PID alone.
 
 ## 0.11.3 — preserve model identifiers in native commands
 

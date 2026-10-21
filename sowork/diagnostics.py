@@ -1,6 +1,5 @@
 """Read-only local inspection: no adapter, secrets, network or queue recovery."""
 import json
-import os
 from contextlib import closing
 from pathlib import Path
 import re
@@ -67,13 +66,16 @@ def gateway_summary(home, now):
     try:
         data = json.loads(path.read_text())
         age = max(0, now - path.stat().st_mtime)
-        os.kill(int(data["pid"]), 0)
-        fresh = age <= 120 and data.get("hermes_home") == str(home)
+        from gateway.status import get_runtime_status_running_pid
+        # Native snapshots may omit hermes_home. Hermes verifies process start
+        # identity and the requested profile; bare PID existence is insufficient.
+        pid = get_runtime_status_running_pid(data, expected_home=home)
+        fresh = age <= 120 and pid is not None and pid == int(data["pid"])
         state = data.get("platforms", {}).get("sowork", {}).get("state")
         allowed = {"connected", "disconnected", "connecting", "error", "failed", "fatal"}
         return {"state": state if fresh and state in allowed else "unknown", "fresh": fresh,
                 "snapshot_age_seconds": round(age)}
-    except (ValueError, KeyError, OSError, TypeError):
+    except (ValueError, KeyError, OSError, TypeError, ImportError):
         return {"state": "unknown", "fresh": False}
 
 
