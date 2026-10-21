@@ -21,6 +21,10 @@ class SoWorkServer:
         self.generation = 0
         self.fail_after_accept = False
         self.get_failures = {}
+        self.subscriptions = {"sub": {"id": "sub", "officeId": "workspace", "events": [DM_EVENT, THREAD_EVENT], "creator": {"id": "app"}}}
+        self.fail_subscription_after_accept = False
+        self.dm_participants = [{"id": "human"}]
+        self.owner_user_id = None
 
     def start(self):
         owner = self
@@ -89,9 +93,20 @@ class SoWorkServer:
                 failure = failures.pop(0) if failures else None
             if failure:
                 return reply({"error": {"code": failure[1]}}, failure[0])
-        if path == "/v1/app":return reply({"installation": {"id": "install", "state": "active", "consentedScopes": ["chat.dm", "chat.write", "chat.history", "events.subscribe:"+DM_EVENT, "events.subscribe:"+THREAD_EVENT]}, "group": {"id": "workspace"}, "appUser": {"id": "app"}})
-        if path == "/v1/subscriptions":return reply({"webhooks": [{"id": "sub", "officeId": "workspace", "events": [DM_EVENT, THREAD_EVENT], "creator": {"id": "app"}}]})
-        if path == "/v1/chat/dms":return reply({"conversations": [{"id": "dm", "type": "direct", "participants": [{"id": "human"}]}]})
+        if path == "/v1/app":return reply({"installation": {"id": "install", "state": "active", "consentedScopes": ["chat.dm", "chat.write", "chat.history", "events.subscribe:"+DM_EVENT, "events.subscribe:"+THREAD_EVENT], **({"ownerUserId": self.owner_user_id} if self.owner_user_id else {})}, "group": {"id": "workspace"}, "appUser": {"id": "app"}})
+        if path == "/v1/subscriptions":
+            if h.command == "POST":
+                with self.lock:
+                    sid = "setup-" + str(len(self.subscriptions))
+                    sub = {"id": sid, "officeId": "workspace", "events": body["events"], "creator": {"id": "app"}}
+                    self.subscriptions[sid] = sub
+                    if self.fail_subscription_after_accept:
+                        self.fail_subscription_after_accept = False
+                        h.close_connection = True
+                        return
+                return reply(sub)
+            with self.lock:return reply({"webhooks": copy.deepcopy(list(self.subscriptions.values()))})
+        if path == "/v1/chat/dms":return reply({"conversations": [{"id": "dm", "type": "direct", "participants": self.dm_participants}]})
         if path.endswith("/replies"):return reply({"parent": self.parents[path.split("/")[-2]], "messages": []})
         if path == "/v1/events":
             cursor = query.get("after", [None])[0]

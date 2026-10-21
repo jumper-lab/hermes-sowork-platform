@@ -17,6 +17,9 @@ def setup_parser(parser):
     commands.add_parser("check-preview", help="Local core/provider streaming compatibility; no model or secrets")
     commands.add_parser("check-runtime", help="Check Hermes gateway contracts before credentials or network")
     commands.add_parser("check-connection", help="Read-only API check using the active Hermes profile")
+    setup = commands.add_parser("setup", help="Connect this profile through native secrets and a private DM pairing code")
+    setup.add_argument("--owner-id", help="Optional already-confirmed human ID; never a wildcard")
+    setup.add_argument("--subscription-id", help="Explicitly reviewed exclusive subscription for recovery; otherwise setup creates its own")
     config = commands.add_parser("config", help="Inspect or review limited SoWork-only settings")
     actions = config.add_subparsers(dest="config_command", required=True)
     actions.add_parser("show", help="Show public bindings and resource flags")
@@ -33,7 +36,10 @@ def dispatch(args):
         if args.home is not None and args.home.expanduser().is_symlink():
             raise AdminError("profile_symlink")
         home = (args.home or get_hermes_home()).expanduser().resolve()
-        if args.sowork_command == "check-runtime":
+        if args.sowork_command == "setup":
+            from .setup import interactive
+            result = interactive(home, args)
+        elif args.sowork_command == "check-runtime":
             from .runtime import MINIMUM_HERMES, missing_contracts
             missing = missing_contracts()
             result = {"minimum_hermes": MINIMUM_HERMES, "issues": missing,

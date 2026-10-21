@@ -5,6 +5,8 @@ import copy
 import hashlib
 import os
 from pathlib import Path
+import stat
+import tempfile
 import time
 from types import SimpleNamespace
 
@@ -113,21 +115,67 @@ def configure(home, feature, enabled, *, apply=False, expected_sha=None):
         raise AdminError("config_changed_review_again")
     if not changed:
         return result
-    from hermes_cli.config import validate_config_structure, atomic_config_write
-    if validate_config_structure(candidate) != validate_config_structure(original):
-        raise AdminError("candidate_introduces_native_config_issues")
-    backup = home / ("config.yaml.bak-sowork-admin-" + str(time.time_ns()))
-    # Exclusive creation; config backups may contain unrelated secrets, so always private.
-    with backup.open("xb") as file:
-        os.chmod(backup, 0o600)
-        file.write((home / "config.yaml").read_bytes())
-    if digest(home / "config.yaml") != sha:
-        raise AdminError("config_changed_review_again")
-    atomic_config_write(home / "config.yaml", candidate)
-    after, new_sha = read_config(home)
-    if after != candidate:
-        raise AdminError("config_write_verification_failed")
-    return {**result, "applied": True, "config_sha256": new_sha, "backup": str(backup)}
+    result.update(write_config(home, original, candidate, sha))
+    result["applied"] = True
+    return result
+
+
+def write_config(home, original, candidate, sha):
+    """Stage native YAML serialization, then publish under Hermes' config locks.
+
+    The shared lock serializes native plugin-setting writers. Writers/editors
+    outside that protocol are not transactional; checksum checks also refuse
+    their changes observed during preparation, without overwriting them.
+    """
+    from hermes_cli.config import _CONFIG_LOCK, validate_config_structure, atomic_config_write
+    from hermes_cli.plugins_state import _locked_plugin_state
+    path = home / "config.yaml"
+
+    def reviewed():
+        if managed_config_present():
+            raise AdminError("managed_config_requires_native_review")
+        current, current_sha = read_config(home)
+        if current_sha != sha or current != original:
+            raise AdminError("config_changed_review_again")
+
+    with _locked_plugin_state(path), _CONFIG_LOCK:
+        reviewed()
+        if validate_config_structure(candidate) != validate_config_structure(original):
+            raise AdminError("candidate_introduces_native_config_issues")
+        raw = path.read_bytes()
+        info = path.stat()
+        # Serialize away from the live path: native serialization can be slow.
+        # A concurrent non-cooperating write during it must survive a refusal.
+        with tempfile.TemporaryDirectory(prefix=".sowork-config-", dir=home) as temporary:
+            staged = Path(temporary) / "config.yaml"
+            with staged.open("xb") as file:
+                os.chmod(staged, 0o600)
+                file.write(raw)
+            atomic_config_write(staged, candidate)
+            from hermes_yaml import safe_load
+            if safe_load(staged.read_text()) != candidate:
+                raise AdminError("config_write_verification_failed")
+            os.chmod(staged, stat.S_IMODE(info.st_mode))
+            staged_info = staged.stat()
+            if (staged_info.st_uid, staged_info.st_gid) != (info.st_uid, info.st_gid):
+                os.chown(staged, info.st_uid, info.st_gid)
+            backup = home / ("config.yaml.bak-sowork-admin-" + str(time.time_ns()))
+            with backup.open("xb") as file:
+                os.chmod(backup, 0o600)
+                file.write(raw)
+                file.flush()
+                os.fsync(file.fileno())
+            reviewed()  # After all native serialization and backup I/O.
+            os.replace(staged, path)
+            directory = os.open(home, os.O_RDONLY | os.O_DIRECTORY)
+            try:
+                os.fsync(directory)
+            finally:
+                os.close(directory)
+        after, new_sha = read_config(home)
+        if after != candidate:
+            raise AdminError("config_write_verification_failed")
+        return {"config_sha256": new_sha, "backup": str(backup)}
 
 
 def fetch_credentials(home, config, settings):
@@ -151,26 +199,11 @@ async def check_connection(home):
     credentials = fetch_credentials(home, config, settings)
     if digest(home / "config.yaml") != sha:
         raise AdminError("config_changed_review_again")
-    from .client import Client, SoWorkError, THREAD_EVENT
-    from .threads import events, verify_dm
+    from .client import Client, SoWorkError
     client = Client(credentials)
     try:
-        await client.verify_identity(workspace_id=settings.workspace_id, app_user_id=settings.app_user_id)
-        if settings.reaction_probe_enabled and "chat.history" not in client.identity["installation"]["consentedScopes"]:
-            raise AdminError("reaction_probe_scope_missing")
-        if settings.threads_enabled and not {"chat.history", "events.subscribe:" + THREAD_EVENT}.issubset(
-                set(client.identity["installation"]["consentedScopes"])):
-            raise AdminError("thread_scopes_missing")
-        subscriptions = await client.subscriptions()
-        sub = next((s for s in subscriptions if s["id"] == settings.subscription_id), None)
-        if (not sub or sub.get("url") or sub.get("disabledAt")
-                or sub.get("officeId") != settings.workspace_id
-                or sorted(sub.get("events", [])) != sorted(events(settings))
-                or sub.get("creator", {}).get("id") != settings.app_user_id):
-            raise AdminError("subscription_mismatch")
-        await verify_dm(SimpleNamespace(client=client, settings=settings, _thread_dm_verified=False))
-        return {"connection": "verified", "identity_verified": True, "subscription_verified": True,
-                "dm_membership_verified": True, "allowed_user_ids": [settings.allowed_user_id],
+        verified = await verify_connection(client, settings)
+        return {**verified, "allowed_user_ids": [settings.allowed_user_id],
                 "installation_id": credentials.installation_id,
                 "credential_source": "Hermes active profile", "config_sha256": sha,
                 "messages_sent": 0, "receiver_started": False}
@@ -183,3 +216,25 @@ async def check_connection(home):
         raise AdminError("connection_check_failed") from None
     finally:
         await client.close()
+
+
+async def verify_connection(client, settings):
+    """GET-only validation of a complete candidate, before configuration is committed."""
+    from .client import THREAD_EVENT
+    from .threads import events, verify_dm
+    await client.verify_identity(workspace_id=settings.workspace_id, app_user_id=settings.app_user_id)
+    if settings.reaction_probe_enabled and "chat.history" not in client.identity["installation"]["consentedScopes"]:
+        raise AdminError("reaction_probe_scope_missing")
+    if settings.threads_enabled and not {"chat.history", "events.subscribe:" + THREAD_EVENT}.issubset(
+            set(client.identity["installation"]["consentedScopes"])):
+        raise AdminError("thread_scopes_missing")
+    subscriptions = await client.subscriptions()
+    sub = next((s for s in subscriptions if s["id"] == settings.subscription_id), None)
+    if (not sub or sub.get("url") or sub.get("disabledAt")
+            or sub.get("officeId") != settings.workspace_id
+            or sorted(sub.get("events", [])) != sorted(events(settings))
+            or sub.get("creator", {}).get("id") != settings.app_user_id):
+        raise AdminError("subscription_mismatch")
+    await verify_dm(SimpleNamespace(client=client, settings=settings, _thread_dm_verified=False))
+    return {"connection": "verified", "identity_verified": True, "subscription_verified": True,
+            "dm_membership_verified": True}

@@ -60,8 +60,9 @@ def test_offline_inspection_never_resolves_secrets_or_creates_state(profile, mon
     assert {str(p): p.read_bytes() for p in home.iterdir()} == before
 
 
-def test_fatal_receiver_is_reported_as_fatal_in_fresh_native_snapshot(profile):
+def test_fatal_receiver_is_reported_as_fatal_in_fresh_native_snapshot(profile, monkeypatch):
     home, _ = profile
+    monkeypatch.setattr("gateway.status.get_runtime_status_running_pid", lambda data, *, expected_home: os.getpid())
     (home / "gateway_state.json").write_text(json.dumps({
         "pid": os.getpid(), "hermes_home": str(home),
         "platforms": {"sowork": {"state": "fatal"}},
@@ -108,14 +109,27 @@ def test_multiple_state_scopes_and_corruption_require_review_without_repair(prof
     assert (directory / "a.sqlite3").read_text() == "broken state"
 
 
-def test_gateway_snapshot_needs_live_pid_own_home_and_freshness(profile):
+def test_gateway_snapshot_needs_live_pid_own_home_and_freshness(profile, monkeypatch):
     home, _ = profile
+    def native_identity(data, *, expected_home):
+        assert expected_home == home
+        return os.getpid() if data.get("hermes_home") == str(home) else None
+    monkeypatch.setattr("gateway.status.get_runtime_status_running_pid", native_identity)
     path = home / "gateway_state.json"
     state = {"pid": os.getpid(), "hermes_home": str(home), "platforms": {"sowork": {"state": "connected"}}}
     path.write_text(json.dumps(state))
     assert diagnostics.gateway_summary(home, time.time())["state"] == "connected"
     assert diagnostics.gateway_summary(home, time.time()+121)["state"] == "unknown"
     state["hermes_home"] = "another-profile";path.write_text(json.dumps(state))
+    assert diagnostics.gateway_summary(home, time.time())["state"] == "unknown"
+
+
+def test_gateway_snapshot_requires_native_process_identity_even_when_pid_exists(profile, monkeypatch):
+    home, _ = profile
+    (home / "gateway_state.json").write_text(json.dumps({
+        "pid": os.getpid(), "hermes_home": str(home), "platforms": {"sowork": {"state": "connected"}},
+    }))
+    monkeypatch.setattr("gateway.status.get_runtime_status_running_pid", lambda data, *, expected_home: None)
     assert diagnostics.gateway_summary(home, time.time())["state"] == "unknown"
 
 
@@ -150,6 +164,39 @@ def test_config_requires_review_checksum_and_refuses_global_streaming_change(pro
     cfg["streaming"]["enabled"] = False;write_config(home, cfg)
     with pytest.raises(admin.AdminError, match="preview_requires_existing_safe_global_streaming"):
         admin.configure(home, "preview", True)
+
+
+def test_feature_write_does_not_overwrite_concurrent_channel_edit(profile, monkeypatch):
+    import hermes_cli.config as native
+    home, _ = profile
+    write = native.atomic_config_write
+    changed = []
+    def interleave(path, candidate, **kwargs):
+        if not changed:
+            latest, _ = admin.read_config(home)
+            latest["platforms"]["slack"]["enabled"] = False
+            write(home/"config.yaml", latest)
+            changed.append(True)
+        return write(path, candidate, **kwargs)
+    monkeypatch.setattr(native, "atomic_config_write", interleave)
+    plan = admin.configure(home, "media", False)
+    with pytest.raises(admin.AdminError, match="config_changed_review_again"):
+        admin.configure(home, "media", False, apply=True, expected_sha=plan["config_sha256"])
+    after, _ = admin.read_config(home)
+    assert after["platforms"]["slack"]["enabled"] is False
+    assert after["platforms"]["sowork"]["extra"]["media_enabled"] is True
+
+
+def test_staging_failure_keeps_live_config_and_removes_temporary_files(profile, monkeypatch):
+    home, _ = profile
+    before = (home/"config.yaml").read_bytes()
+    def fail(*args, **kwargs):raise OSError("synthetic staging failure")
+    monkeypatch.setattr("hermes_cli.config.atomic_config_write", fail)
+    plan = admin.configure(home, "media", False)
+    with pytest.raises(OSError):
+        admin.configure(home, "media", False, apply=True, expected_sha=plan["config_sha256"])
+    assert (home/"config.yaml").read_bytes() == before
+    assert not list(home.glob(".sowork-config-*"))
 
 
 @pytest.mark.parametrize("change", ["allowlist", "app", "home"])

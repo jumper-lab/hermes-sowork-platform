@@ -18,13 +18,24 @@ Audio is delivered as an attachment, not a native voice-note UI. Interactive but
 
 - Hermes **0.21.5 or newer**, subject to the gateway contract check (`check-runtime`). See [compatibility](docs/COMPATIBILITY.md) for exact tested commits.
 - Linux or macOS; Python 3.11–3.14. Windows is not supported because the plugin uses POSIX file locks.
-- An existing SoWork app installation, an exclusive inbox-only subscription, and an explicitly confirmed human/DM binding. This plugin never creates subscriptions or expands scopes.
+- An existing SoWork app installation and its installation credentials. Setup creates an exclusive inbox-only subscription and confirms one human/DM; it never expands granted scopes.
 
 ## Installation
 
-Select a dedicated Hermes profile first. Install this directory as `<profile-home>/plugins/sowork-platform` using Hermes' native plugin installer, or the published catalog entry when one is accepted. The current preparation is not yet a catalog listing.
+Select the intended Hermes profile, install/enable the plugin with the native installer, then run setup in a terminal:
 
-Enable `sowork-platform` in `plugins.enabled` and merge the [non-secret example](examples/config.yaml) into that profile's `config.yaml`. Preserve existing plugin entries, platform settings and display options. Never copy another profile's config, secrets or session databases.
+```sh
+hermes --profile my-agent plugins install https://github.com/jumper-lab/hermes-sowork-platform --enable
+hermes --profile my-agent sowork setup
+```
+
+Use the same profile for both commands. This is not yet a catalog listing. Manual configuration remains available through the [non-secret example](examples/config.yaml).
+
+This distribution loads from the profile's plugin directory. Its Python declaration is dependency-only, so different profiles can retain different plugin versions in Hermes' shared dependency environment without installing competing global Python packages or console scripts. Use `hermes sowork` through the selected profile.
+
+Setup shows the authenticated app and workspace, the features it can enable and the active profile. It asks before creating a subscription, prints a fresh code to send to that app in a private 1:1 DM, and asks you to confirm the verified human before saving. An API-declared installation owner, or optional `--owner-id <confirmed-id>`, constrains who may pair; a workspace app without an owner still requires the private code and terminal confirmation. Other senders never become authorized automatically. The setup code never invokes the model.
+
+Global streaming is preserved. If it is off or incompatible, setup leaves private previews off. Threads require existing scopes; setup does not request new permissions. Attachments, status reactions, a private activity indicator and reminders to the pinned DM are enabled. The reaction prototype remains off. No existing channel, model, memory or session configuration is copied or replaced.
 
 Configure these credentials **in Hermes**, through its supported profile secret sources:
 
@@ -34,7 +45,9 @@ Configure these credentials **in Hermes**, through its supported profile secret 
 | `SOWORK_CREDENTIAL` | SoWork installation OAuth client secret |
 | `SOWORK_INSTALLATION_ID` | SoWork installation ID |
 
-1Password remains supported **through Hermes' own secret-source configuration**. This plugin only calls `agent.secret_scope.get_secret`; it does not open credential files, invoke `op`, read keychains or load another profile's secrets. A missing bound secret never borrows a process-level credential.
+1Password remains supported **through Hermes' own secret-source configuration**. Configure that backend for the intended profile first. If any of the three credentials is missing, setup asks for the corresponding `op://vault/item/field` references and confirms saving them in the existing native mapping. Copy field references, not credential values or a whole-item web link; UUID references are preferable because vault/item renames do not break them. The existing service account or desktop authentication stays under Hermes' control.
+
+The plugin reads final credentials through `agent.secret_scope`. Setup delegates a refresh to Hermes' public, profile-scoped secret-source API. It does not open credential files, invoke `op`, read keychains, write secrets into YAML/`.env`, or load another profile's secrets. A missing bound secret never borrows a process-level credential. Ordinary status/diagnostic commands remain offline.
 
 With the intended profile selected:
 
@@ -47,13 +60,17 @@ hermes sowork --json check-preview
 
 `check-connection` performs OAuth and GET-only verification of the installation, scopes, subscription and DM membership. It sends no message and starts no receiver/model. Direct `python /path/to/plugin/soworkctl.py --json status` is an offline entry; it does not bootstrap secrets. For connection checks, use Hermes with the intended active profile. `--home` can inspect a different profile offline, but cannot authorize access to its secrets.
 
-Activate through Hermes' normal gateway lifecycle after validation. Updating a transport reconnects channels served by that gateway; coordinate it with the operator. Never start a second consumer against the same subscription.
+After saving, setup prints the native gateway restart command with the exact `HERMES_HOME` and profile pinned, including unnamed custom homes; it does not restart services itself. Restart that profile's gateway when its current work is finished, then send a test DM. Channels served by that same gateway briefly reconnect. Other profiles must remain untouched. Never start a second consumer against the same subscription.
+
+Configuration writes share Hermes' cross-process plugin-settings lock and its in-process config lock. Native YAML serialization happens in a private temporary copy; a checksum check after preparation refuses an intervening edit before replacing the live file. This protects cooperating writers and detects edits during preparation. Editors and native paths that bypass the shared lock are not transactional: this is not an operating-system compare-and-swap guarantee. Avoid concurrent uncoordinated config editing while approving a setup or feature change.
+
+If pairing times out or you cancel the final save, run setup again: its private checkpoint reuses only the subscription it recorded. A lost subscription-creation receipt is ambiguous, so setup stops instead of retrying and possibly creating a duplicate. Inspect the app's subscriptions, verify exclusive ownership, then use `sowork setup --subscription-id <reviewed-id>` to resume. Existing unrelated subscriptions are never deleted or adopted automatically. Setup cannot silently replace an existing configured binding; rerunning verifies it without changing it. JSON/noninteractive setup is rejected rather than auto-approving a human or side effect.
 
 ## Access and API scopes
 
 The configuration must pin the workspace, app, subscription, human and DM IDs. `allow_from` must contain **exactly** that human. The plugin retains Hermes' authorization checks in addition to its own binding checks.
 
-Baseline scopes: `chat.dm`, `chat.write`, `events.subscribe:chat.direct_message_created`. Threads additionally require already-consented `chat.history` and `events.subscribe:chat.thread_reply_created`; the exclusive subscription must contain exactly the enabled events. The bounded reaction experiment also needs `chat.history`. Enable only features supported by the installation; permission is never requested automatically.
+Baseline scopes: `chat.dm`, `chat.write`, `events.subscribe:chat.direct_message_created`. Threads additionally require already-consented `chat.history` and `events.subscribe:chat.thread_reply_created`; the exclusive subscription must contain exactly the enabled events. The bounded reaction experiment also needs `chat.history`. Setup can create its own subscription with these already-granted events after confirmation; the gateway transport never creates one. Permission is never requested automatically.
 
 ## Updates and recovery
 

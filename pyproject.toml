@@ -1,24 +1,14 @@
 [project]
 name = "hermes-sowork-platform"
-version = "0.11.3"
+version = "0.12.0"
 description = "Private SoWork DM transport with incremental previews, media and isolated threads for Hermes"
 requires-python = ">=3.11,<3.15"
 dependencies = ["httpx>=0.28.1,<0.29"]
 license = {text = "MIT"}
 readme = "README.md"
 
-[build-system]
-requires = ["setuptools>=77,<81"]
-build-backend = "setuptools.build_meta"
-
-[tool.setuptools]
-packages = ["sowork"]
-
-[project.entry-points."hermes_agent.plugins"]
-sowork-platform = "sowork.plugin"
-
-[project.scripts]
-hermes-sowork = "sowork.cli:main"
+[tool.uv]
+package = false
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

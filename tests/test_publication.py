@@ -2,6 +2,8 @@
 import argparse
 import importlib.util
 from pathlib import Path
+import shutil
+import tomllib
 
 import pytest
 
@@ -49,3 +51,36 @@ def test_public_export_keeps_only_reviewable_distribution_and_refuses_overwrite(
         assert not (destination / name).exists()
     with pytest.raises(ValueError, match="must be new"):
         exporter.export(root, destination)
+
+
+def test_native_dependency_workspace_keeps_profile_versions_distinct(tmp_path):
+    """Two profile copies must coexist, including an older buildable release."""
+    import tomli_w
+    from pm.workspace import _generate_pyproject
+
+    source = Path(__file__).resolve().parents[1]
+    core = tmp_path / "core"
+    core.mkdir()
+    (core / "pyproject.toml").write_text('[project]\nname="test-core"\nversion="0.0.0"\n')
+    copies = []
+    original = (source / "pyproject.toml").read_bytes()
+    for profile in ("first", "second", "legacy"):
+        target = tmp_path / profile / "plugins/sowork-platform"
+        shutil.copytree(source, target, ignore=shutil.ignore_patterns(".git", "__pycache__", ".pytest_cache"))
+        copies.append(target)
+    legacy = tomllib.loads(original.decode())
+    legacy["build-system"] = {"requires": ["setuptools>=77,<81"], "build-backend": "setuptools.build_meta"}
+    legacy.pop("tool", None)
+    (copies[-1] / "pyproject.toml").write_text(tomli_w.dumps(legacy))
+    before = {path: (path / "pyproject.toml").read_bytes() for path in copies}
+
+    workspace = tmp_path / "workspace"
+    _generate_pyproject(copies, workspace, source=core)
+    root = tomllib.loads((workspace / "pyproject.toml").read_text())
+    members = [tomllib.loads((workspace / member / "pyproject.toml").read_text())
+               for member in root["tool"]["uv"]["workspace"]["members"]]
+    assert len({member["project"]["name"] for member in members}) == len(copies)
+    assert all(member["project"]["dependencies"] == legacy["project"]["dependencies"] for member in members)
+    assert sum("build-system" in member for member in members) == 1
+    assert all((path / "pyproject.toml").read_bytes() == contents for path, contents in before.items())
+    assert (source / "pyproject.toml").read_bytes() == original

@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.12.0 — interactive profile onboarding
+
+- Add `hermes sowork setup`: validate the active profile, use its native credentials or map missing 1Password field references, discover the app/workspace and pair one human through a fresh code in a private DM. The code nominates a sender; explicit confirmation and API membership validation authorize the binding.
+- With explicit consent, create a dedicated inbox-only subscription while preserving existing subscriptions. Persist setup progress before creation, never blindly retry an ambiguous POST, and resume an owned subscription after cancellation or timeout. Explicit subscription adoption is available for reviewed recovery.
+- Merge only this profile's SoWork connection, display overrides and three native secret references, preserving other configuration and comments with checksum review and private backups. Do not change global streaming, model, memory, secrets files or other profiles. Activation uses Hermes' native gateway lifecycle; setup itself starts no receiver/model and sends no chat messages.
+- Test native 1Password hydration with a synthetic authenticated executable, real loopback HTTP, pairing origin checks, restart-free configuration, cancellation/recovery, active-consumer locks and concurrent config protection. Exercise the full native CLI through a disposable terminal.
+- Use dependency-only metadata and directory discovery so separate profiles can retain different releases without colliding in the shared Python workspace. Let setup collect native secret references instead of asking for raw credentials during installation.
+- Verify diagnostic snapshot ownership with Hermes' native process identity resolver, including native snapshots without a home stamp. Reject stale, foreign or unverified processes instead of trusting a live PID alone.
+- Stage native config serialization in a private copy, recheck the live checksum after preparation and publish under Hermes' shared config locks. Preserve intervening edits by refusing the write, and test serialization with a real native plugin-settings writer in another process. Uncoordinated writers that bypass the lock remain outside the transactional guarantee.
+- Pin the exact home and resolve its native profile in the activation instruction; never treat the descriptive `custom` label as a named profile. Cover default, named and custom homes, spaces and inherited profile-name pins.
+
 ## 0.11.3 — preserve model identifiers in native commands
 
 - Decode SoWork's Markdown escapes around square brackets in `/model` commands before native dispatch. An identifier such as `model[1m]` previously persisted with literal backslashes and could fail with an upstream model-not-found error. Ordinary messages and the original event payload remain unchanged.
