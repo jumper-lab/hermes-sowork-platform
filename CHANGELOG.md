@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.11.3 — preserve model identifiers in native commands
+
+- Decode SoWork's Markdown escapes around square brackets in `/model` commands before native dispatch. An identifier such as `model[1m]` previously persisted with literal backslashes and could fail with an upstream model-not-found error. Ordinary messages and the original event payload remain unchanged.
+
+## 0.11.2 — recover temporary event-route failures
+
+- A generic HTTP 404 from polling or SSE no longer permanently stops a valid receiver. Recheck the original installation, scopes, subscription ownership and enabled DM membership before retrying with bounded backoff and the unchanged cursor. Deleted subscriptions, changed bindings and explicit API errors still stop reception.
+- Identify polling versus streaming in safe errors and receiver warnings; retain native fatal status in offline diagnostics. Tokens, response bodies and cursor values are excluded from those errors.
+- Exercise temporary polling/SSE failures and duplicate replay through a real gateway process; cover revoked installations, changed owners, deleted subscriptions and token errors separately.
+
 ## 0.11.1 — admit the existing native runtime
 
 - Admit Hermes 0.21.5 development installs that satisfy the existing gateway contracts, with the exact older runtime added to Linux/macOS CI. The 0.22.2 metadata floor previously blocked native installation despite passing the runtime contract check.

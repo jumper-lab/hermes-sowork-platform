@@ -60,6 +60,12 @@ Baseline scopes: `chat.dm`, `chat.write`, `events.subscribe:chat.direct_message_
 Use **Hermes' native plugin installer/updater**, pinned to the reviewed commit. There is no plugin self-update, package apply or code rollback command in this distribution. Existing privately managed installations are not automatically converted or restarted. See [migration and recovery](docs/MIGRATION.md).
 
 Inbox/cursor and immutable outbox state live inside the owning profile.
+Generic HTTP 404 responses from polling or SSE trigger a read-only recheck of the
+original installation and subscription before retrying with backoff (up to 30
+seconds). Every reconnect first polls from the saved cursor; an unavailable SSE
+route therefore still permits polling delivery. Explicit API errors, revoked
+grants and changed/deleted subscriptions remain fatal. Receiver warnings identify
+the failed operation without exposing tokens, cursors or response bodies.
 Hourly bounded cleanup removes terminal payloads older than 30 days. Queued,
 claimed, failed, uncertain and pending-delivery records, unfinished uploads and
 visuals, and thread routes are preserved. Compact SHA-256 replay barriers remain:
