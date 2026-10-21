@@ -161,6 +161,100 @@ async def test_concurrent_config_write_during_pairing_is_not_overwritten(rig):
     assert "sowork" not in after["platforms"]
 
 
+@pytest.mark.parametrize("phase", ["references", "binding"])
+async def test_concurrent_other_channel_write_during_native_serialization_survives(rig, monkeypatch, phase):
+    import hermes_cli.config as native
+    write = native.atomic_config_write
+    changes = []
+    live = rig.home / "config.yaml"
+    def interleave(path, candidate, **kwargs):
+        binding_write = "sowork" in candidate.get("platforms", {})
+        if binding_write == (phase == "binding") and not changes:
+            latest, _ = admin.read_config(rig.home)
+            latest["platforms"]["slack"]["enabled"] = True
+            # Use the actual live path even though preparation targets a private file.
+            write(live, latest)
+            changes.append(True)
+        return write(path, candidate, **kwargs)
+    monkeypatch.setattr(native, "atomic_config_write", interleave)
+    with pytest.raises(admin.AdminError, match="config_changed_review_again"):
+        await run(rig, UI(rig))
+    assert changes
+    after, _ = admin.read_config(rig.home)
+    assert after["platforms"]["slack"]["enabled"] is True
+    assert "sowork" not in after["platforms"]
+    assert not list(rig.home.glob(".sowork-config-*"))
+
+
+async def test_native_plugin_writer_in_another_process_preserves_setup(rig, monkeypatch, tmp_path):
+    import hermes_cli.config as native
+    write = native.atomic_config_write
+    ready = tmp_path / "writer-ready"
+    worker = tmp_path / "config_writer.py"
+    worker.write_text("\n".join([
+        "import fcntl,json,os",
+        "from pathlib import Path",
+        "from hermes_cli.plugins_state import save_plugin_setting",
+        f"lock=Path({str(rig.home / '.config.yaml.lock')!r})",
+        "fd=os.open(lock,os.O_RDWR)",
+        "blocked=False",
+        "try: fcntl.flock(fd,fcntl.LOCK_EX|fcntl.LOCK_NB)",
+        "except BlockingIOError: blocked=True",
+        "os.close(fd)",
+        f"Path({str(ready)!r}).write_text(json.dumps({{'blocked':blocked}}))",
+        "save_plugin_setting('other-plugin',('marker',),'after-setup')",
+    ]))
+    processes = []
+    def prepare(path, candidate, **kwargs):
+        if "sowork" in candidate.get("platforms", {}) and not processes:
+            child = subprocess.Popen([sys.executable, str(worker)], cwd=Path.cwd(),
+                env={**os.environ, "PYTHONPATH":str(Path.cwd())}, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+            processes.append(child)
+            deadline = time.monotonic()+10
+            while not ready.exists() and time.monotonic()<deadline:
+                time.sleep(.01)
+            assert ready.exists(), "Native config writer did not reach the shared lock"
+            assert json.loads(ready.read_text())["blocked"]
+        return write(path, candidate, **kwargs)
+    monkeypatch.setattr(native, "atomic_config_write", prepare)
+    try:
+        assert (await run(rig))["configured"]
+        stdout, stderr = processes[0].communicate(timeout=15)
+        assert processes[0].returncode == 0, stdout+stderr
+        after, _ = admin.read_config(rig.home)
+        assert admin.binding(after).allowed_user_id == "human"
+        assert after["plugins"]["entries"]["other-plugin"]["settings"]["marker"] == "after-setup"
+        assert after["model"] == rig.before["model"]
+    finally:
+        for child in processes:
+            if child.poll() is None:
+                child.kill();child.communicate()
+
+
+@pytest.mark.parametrize("location", ["default", "named", "custom"])
+async def test_activation_command_resolves_exact_configured_home(rig, monkeypatch, tmp_path, location):
+    import shutil
+    from hermes_cli.profiles import get_active_profile_name, resolve_profile_env
+    operator = tmp_path / "operator home"
+    root = operator / ".hermes"
+    home = {"default":root, "named":root/"profiles/test-agent", "custom":root/"experiments/pilot"}[location]
+    home.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copytree(rig.home, home, symlinks=True)
+    rig.home = home
+    monkeypatch.setenv("HOME", str(operator))
+    monkeypatch.setenv("HERMES_HOME", str(home))
+    monkeypatch.setenv("HERMES_PROFILE_NAME", "unrelated-inherited-name")
+    assert get_active_profile_name() == {"default":"default", "named":"test-agent", "custom":"custom"}[location]
+    result = await run(rig)
+    command = result["restart_command"]
+    assert command[:2] == ["env", "HERMES_HOME="+str(home)]
+    # The instruction is safe even when pasted in a shell that selected another home.
+    monkeypatch.setenv("HERMES_HOME", command[1].split("=",1)[1])
+    selected = Path(resolve_profile_env(command[command.index("--profile")+1])).resolve()
+    assert selected == home.resolve()
+    assert "custom" not in command
+
+
 async def test_setup_guard_before_foreign_profile_or_second_operator(rig):
     before = (rig.home / "config.yaml").read_bytes()
     with pytest.raises(admin.AdminError, match="active_profile"):

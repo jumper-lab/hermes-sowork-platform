@@ -8,6 +8,8 @@
 - Test native 1Password hydration with a synthetic authenticated executable, real loopback HTTP, pairing origin checks, restart-free configuration, cancellation/recovery, active-consumer locks and concurrent config protection. Exercise the full native CLI through a disposable terminal.
 - Use dependency-only metadata and directory discovery so separate profiles can retain different releases without colliding in the shared Python workspace. Let setup collect native secret references instead of asking for raw credentials during installation.
 - Verify diagnostic snapshot ownership with Hermes' native process identity resolver, including native snapshots without a home stamp. Reject stale, foreign or unverified processes instead of trusting a live PID alone.
+- Stage native config serialization in a private copy, recheck the live checksum after preparation and publish under Hermes' shared config locks. Preserve intervening edits by refusing the write, and test serialization with a real native plugin-settings writer in another process. Uncoordinated writers that bypass the lock remain outside the transactional guarantee.
+- Pin the exact home and resolve its native profile in the activation instruction; never treat the descriptive `custom` label as a named profile. Cover default, named and custom homes, spaces and inherited profile-name pins.
 
 ## 0.11.3 — preserve model identifiers in native commands
 

@@ -166,6 +166,39 @@ def test_config_requires_review_checksum_and_refuses_global_streaming_change(pro
         admin.configure(home, "preview", True)
 
 
+def test_feature_write_does_not_overwrite_concurrent_channel_edit(profile, monkeypatch):
+    import hermes_cli.config as native
+    home, _ = profile
+    write = native.atomic_config_write
+    changed = []
+    def interleave(path, candidate, **kwargs):
+        if not changed:
+            latest, _ = admin.read_config(home)
+            latest["platforms"]["slack"]["enabled"] = False
+            write(home/"config.yaml", latest)
+            changed.append(True)
+        return write(path, candidate, **kwargs)
+    monkeypatch.setattr(native, "atomic_config_write", interleave)
+    plan = admin.configure(home, "media", False)
+    with pytest.raises(admin.AdminError, match="config_changed_review_again"):
+        admin.configure(home, "media", False, apply=True, expected_sha=plan["config_sha256"])
+    after, _ = admin.read_config(home)
+    assert after["platforms"]["slack"]["enabled"] is False
+    assert after["platforms"]["sowork"]["extra"]["media_enabled"] is True
+
+
+def test_staging_failure_keeps_live_config_and_removes_temporary_files(profile, monkeypatch):
+    home, _ = profile
+    before = (home/"config.yaml").read_bytes()
+    def fail(*args, **kwargs):raise OSError("synthetic staging failure")
+    monkeypatch.setattr("hermes_cli.config.atomic_config_write", fail)
+    plan = admin.configure(home, "media", False)
+    with pytest.raises(OSError):
+        admin.configure(home, "media", False, apply=True, expected_sha=plan["config_sha256"])
+    assert (home/"config.yaml").read_bytes() == before
+    assert not list(home.glob(".sowork-config-*"))
+
+
 @pytest.mark.parametrize("change", ["allowlist", "app", "home"])
 def test_admin_refuses_ambiguous_access_binding(profile, change):
     home, cfg = profile

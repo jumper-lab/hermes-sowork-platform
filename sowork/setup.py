@@ -200,6 +200,20 @@ def candidate_config(original, state, paired):
     return candidate
 
 
+def activation_command(home):
+    """Pin the exact home even when the instruction is copied to another shell."""
+    from hermes_cli.profiles import get_active_profile_name, profile_root_for_env_home
+    name = get_active_profile_name()
+    if name == "custom":
+        # 'custom' describes an unnamed home; it is not a named profile.
+        name = "default"
+    root = profile_root_for_env_home(str(home), home)
+    target = root if name == "default" else root / "profiles" / name
+    if target.resolve() != home:
+        raise AdminError("setup_restart_destination_mismatch")
+    return ["env", "HERMES_HOME=" + str(home), "hermes", "--profile", name, "gateway", "restart"]
+
+
 async def run_setup(home, *, ui=None, owner_id=None, resume_subscription=None, client_factory=None, pair_timeout=180):
     from .runtime import require_supported_runtime
     require_active_profile(home)
@@ -214,6 +228,7 @@ async def run_setup(home, *, ui=None, owner_id=None, resume_subscription=None, c
         binding(config)  # Never replace a partial or existing identity silently.
         from .admin import check_connection
         return {**await check_connection(home), "already_configured": True, "restart_required": False}
+    command = activation_command(home)
     lease = SubscriptionLock("setup:" + str(home))
     if not lease.acquire():
         raise AdminError("setup_already_running_for_profile")
@@ -256,8 +271,6 @@ async def run_setup(home, *, ui=None, owner_id=None, resume_subscription=None, c
             raise AdminError("setup_cancelled_subscription_retained_run_setup_to_resume")
         written = write_config(home, config, candidate, sha)
         journal.save({**state, "phase": "configured"})
-        from hermes_cli.profiles import current_profile_name
-        command = ["hermes", "--profile", current_profile_name("default"), "gateway", "restart"]
         ui.write("Configured. Activate using the native gateway lifecycle for this profile: " + shlex.join(command))
         return {**written, "configured": True, "restart_required": True, "restart_command": command,
                 "allowed_user_ids": [paired["allowed_user_id"]], "channel_id": paired["channel_id"],

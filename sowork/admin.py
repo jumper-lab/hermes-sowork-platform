@@ -5,6 +5,8 @@ import copy
 import hashlib
 import os
 from pathlib import Path
+import stat
+import tempfile
 import time
 from types import SimpleNamespace
 
@@ -119,26 +121,61 @@ def configure(home, feature, enabled, *, apply=False, expected_sha=None):
 
 
 def write_config(home, original, candidate, sha):
-    """Native round-trip writer, shared by setup and limited feature edits."""
-    if managed_config_present():
-        raise AdminError("managed_config_requires_native_review")
-    if digest(home / "config.yaml") != sha:
-        raise AdminError("config_changed_review_again")
-    from hermes_cli.config import validate_config_structure, atomic_config_write
-    if validate_config_structure(candidate) != validate_config_structure(original):
-        raise AdminError("candidate_introduces_native_config_issues")
-    backup = home / ("config.yaml.bak-sowork-admin-" + str(time.time_ns()))
-    # Exclusive creation; config backups may contain unrelated secrets, so always private.
-    with backup.open("xb") as file:
-        os.chmod(backup, 0o600)
-        file.write((home / "config.yaml").read_bytes())
-    if digest(home / "config.yaml") != sha:
-        raise AdminError("config_changed_review_again")
-    atomic_config_write(home / "config.yaml", candidate)
-    after, new_sha = read_config(home)
-    if after != candidate:
-        raise AdminError("config_write_verification_failed")
-    return {"config_sha256": new_sha, "backup": str(backup)}
+    """Stage native YAML serialization, then publish under Hermes' config locks.
+
+    The shared lock serializes native plugin-setting writers. Writers/editors
+    outside that protocol are not transactional; checksum checks also refuse
+    their changes observed during preparation, without overwriting them.
+    """
+    from hermes_cli.config import _CONFIG_LOCK, validate_config_structure, atomic_config_write
+    from hermes_cli.plugins_state import _locked_plugin_state
+    path = home / "config.yaml"
+
+    def reviewed():
+        if managed_config_present():
+            raise AdminError("managed_config_requires_native_review")
+        current, current_sha = read_config(home)
+        if current_sha != sha or current != original:
+            raise AdminError("config_changed_review_again")
+
+    with _locked_plugin_state(path), _CONFIG_LOCK:
+        reviewed()
+        if validate_config_structure(candidate) != validate_config_structure(original):
+            raise AdminError("candidate_introduces_native_config_issues")
+        raw = path.read_bytes()
+        info = path.stat()
+        # Serialize away from the live path: native serialization can be slow.
+        # A concurrent non-cooperating write during it must survive a refusal.
+        with tempfile.TemporaryDirectory(prefix=".sowork-config-", dir=home) as temporary:
+            staged = Path(temporary) / "config.yaml"
+            with staged.open("xb") as file:
+                os.chmod(staged, 0o600)
+                file.write(raw)
+            atomic_config_write(staged, candidate)
+            from hermes_yaml import safe_load
+            if safe_load(staged.read_text()) != candidate:
+                raise AdminError("config_write_verification_failed")
+            os.chmod(staged, stat.S_IMODE(info.st_mode))
+            staged_info = staged.stat()
+            if (staged_info.st_uid, staged_info.st_gid) != (info.st_uid, info.st_gid):
+                os.chown(staged, info.st_uid, info.st_gid)
+            backup = home / ("config.yaml.bak-sowork-admin-" + str(time.time_ns()))
+            with backup.open("xb") as file:
+                os.chmod(backup, 0o600)
+                file.write(raw)
+                file.flush()
+                os.fsync(file.fileno())
+            reviewed()  # After all native serialization and backup I/O.
+            os.replace(staged, path)
+            directory = os.open(home, os.O_RDONLY | os.O_DIRECTORY)
+            try:
+                os.fsync(directory)
+            finally:
+                os.close(directory)
+        after, new_sha = read_config(home)
+        if after != candidate:
+            raise AdminError("config_write_verification_failed")
+        return {"config_sha256": new_sha, "backup": str(backup)}
 
 
 def fetch_credentials(home, config, settings):
