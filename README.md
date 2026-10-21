@@ -31,6 +31,8 @@ hermes --profile my-agent sowork setup
 
 Use the same profile for both commands. This is not yet a catalog listing. Manual configuration remains available through the [non-secret example](examples/config.yaml).
 
+This distribution loads from the profile's plugin directory. Its Python declaration is dependency-only, so different profiles can retain different plugin versions in Hermes' shared dependency environment without installing competing global Python packages or console scripts. Use `hermes sowork` through the selected profile.
+
 Setup shows the authenticated app and workspace, the features it can enable and the active profile. It asks before creating a subscription, prints a fresh code to send to that app in a private 1:1 DM, and asks you to confirm the verified human before saving. An API-declared installation owner, or optional `--owner-id <confirmed-id>`, constrains who may pair; a workspace app without an owner still requires the private code and terminal confirmation. Other senders never become authorized automatically. The setup code never invokes the model.
 
 Global streaming is preserved. If it is off or incompatible, setup leaves private previews off. Threads require existing scopes; setup does not request new permissions. Attachments, status reactions, a private activity indicator and reminders to the pinned DM are enabled. The reaction prototype remains off. No existing channel, model, memory or session configuration is copied or replaced.

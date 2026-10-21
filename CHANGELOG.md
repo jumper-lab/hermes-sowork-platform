@@ -6,6 +6,7 @@
 - With explicit consent, create a dedicated inbox-only subscription while preserving existing subscriptions. Persist setup progress before creation, never blindly retry an ambiguous POST, and resume an owned subscription after cancellation or timeout. Explicit subscription adoption is available for reviewed recovery.
 - Merge only this profile's SoWork connection, display overrides and three native secret references, preserving other configuration and comments with checksum review and private backups. Do not change global streaming, model, memory, secrets files or other profiles. Activation uses Hermes' native gateway lifecycle; setup itself starts no receiver/model and sends no chat messages.
 - Test native 1Password hydration with a synthetic authenticated executable, real loopback HTTP, pairing origin checks, restart-free configuration, cancellation/recovery, active-consumer locks and concurrent config protection. Exercise the full native CLI through a disposable terminal.
+- Use dependency-only metadata and directory discovery so separate profiles can retain different releases without colliding in the shared Python workspace. Let setup collect native secret references instead of asking for raw credentials during installation.
 
 ## 0.11.3 — preserve model identifiers in native commands
 

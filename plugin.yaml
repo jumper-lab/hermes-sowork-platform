@@ -7,11 +7,5 @@ author: Bruno / Jumper Studio
 license: MIT
 requires_hermes: ">=0.21.5"
 platforms: [linux, macos]
-requires_env:
-  - name: SOWORK_USERNAME
-    description: SoWork installation OAuth client ID, resolved by Hermes.
-  - name: SOWORK_CREDENTIAL
-    description: SoWork installation OAuth client secret, resolved by Hermes.
-    password: true
-  - name: SOWORK_INSTALLATION_ID
-    description: SoWork installation ID, resolved by Hermes.
+# Setup must load before credentials exist. It configures the active profile's
+# native secret source; the adapter validates all three credentials on startup.
