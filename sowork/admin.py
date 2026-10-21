@@ -113,6 +113,17 @@ def configure(home, feature, enabled, *, apply=False, expected_sha=None):
         raise AdminError("config_changed_review_again")
     if not changed:
         return result
+    result.update(write_config(home, original, candidate, sha))
+    result["applied"] = True
+    return result
+
+
+def write_config(home, original, candidate, sha):
+    """Native round-trip writer, shared by setup and limited feature edits."""
+    if managed_config_present():
+        raise AdminError("managed_config_requires_native_review")
+    if digest(home / "config.yaml") != sha:
+        raise AdminError("config_changed_review_again")
     from hermes_cli.config import validate_config_structure, atomic_config_write
     if validate_config_structure(candidate) != validate_config_structure(original):
         raise AdminError("candidate_introduces_native_config_issues")
@@ -127,7 +138,7 @@ def configure(home, feature, enabled, *, apply=False, expected_sha=None):
     after, new_sha = read_config(home)
     if after != candidate:
         raise AdminError("config_write_verification_failed")
-    return {**result, "applied": True, "config_sha256": new_sha, "backup": str(backup)}
+    return {"config_sha256": new_sha, "backup": str(backup)}
 
 
 def fetch_credentials(home, config, settings):
@@ -151,26 +162,11 @@ async def check_connection(home):
     credentials = fetch_credentials(home, config, settings)
     if digest(home / "config.yaml") != sha:
         raise AdminError("config_changed_review_again")
-    from .client import Client, SoWorkError, THREAD_EVENT
-    from .threads import events, verify_dm
+    from .client import Client, SoWorkError
     client = Client(credentials)
     try:
-        await client.verify_identity(workspace_id=settings.workspace_id, app_user_id=settings.app_user_id)
-        if settings.reaction_probe_enabled and "chat.history" not in client.identity["installation"]["consentedScopes"]:
-            raise AdminError("reaction_probe_scope_missing")
-        if settings.threads_enabled and not {"chat.history", "events.subscribe:" + THREAD_EVENT}.issubset(
-                set(client.identity["installation"]["consentedScopes"])):
-            raise AdminError("thread_scopes_missing")
-        subscriptions = await client.subscriptions()
-        sub = next((s for s in subscriptions if s["id"] == settings.subscription_id), None)
-        if (not sub or sub.get("url") or sub.get("disabledAt")
-                or sub.get("officeId") != settings.workspace_id
-                or sorted(sub.get("events", [])) != sorted(events(settings))
-                or sub.get("creator", {}).get("id") != settings.app_user_id):
-            raise AdminError("subscription_mismatch")
-        await verify_dm(SimpleNamespace(client=client, settings=settings, _thread_dm_verified=False))
-        return {"connection": "verified", "identity_verified": True, "subscription_verified": True,
-                "dm_membership_verified": True, "allowed_user_ids": [settings.allowed_user_id],
+        verified = await verify_connection(client, settings)
+        return {**verified, "allowed_user_ids": [settings.allowed_user_id],
                 "installation_id": credentials.installation_id,
                 "credential_source": "Hermes active profile", "config_sha256": sha,
                 "messages_sent": 0, "receiver_started": False}
@@ -183,3 +179,25 @@ async def check_connection(home):
         raise AdminError("connection_check_failed") from None
     finally:
         await client.close()
+
+
+async def verify_connection(client, settings):
+    """GET-only validation of a complete candidate, before configuration is committed."""
+    from .client import THREAD_EVENT
+    from .threads import events, verify_dm
+    await client.verify_identity(workspace_id=settings.workspace_id, app_user_id=settings.app_user_id)
+    if settings.reaction_probe_enabled and "chat.history" not in client.identity["installation"]["consentedScopes"]:
+        raise AdminError("reaction_probe_scope_missing")
+    if settings.threads_enabled and not {"chat.history", "events.subscribe:" + THREAD_EVENT}.issubset(
+            set(client.identity["installation"]["consentedScopes"])):
+        raise AdminError("thread_scopes_missing")
+    subscriptions = await client.subscriptions()
+    sub = next((s for s in subscriptions if s["id"] == settings.subscription_id), None)
+    if (not sub or sub.get("url") or sub.get("disabledAt")
+            or sub.get("officeId") != settings.workspace_id
+            or sorted(sub.get("events", [])) != sorted(events(settings))
+            or sub.get("creator", {}).get("id") != settings.app_user_id):
+        raise AdminError("subscription_mismatch")
+    await verify_dm(SimpleNamespace(client=client, settings=settings, _thread_dm_verified=False))
+    return {"connection": "verified", "identity_verified": True, "subscription_verified": True,
+            "dm_membership_verified": True}

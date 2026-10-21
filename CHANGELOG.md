@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.12.0 — interactive profile onboarding
+
+- Add `hermes sowork setup`: validate the active profile, use its native credentials or map missing 1Password field references, discover the app/workspace and pair one human through a fresh code in a private DM. The code nominates a sender; explicit confirmation and API membership validation authorize the binding.
+- With explicit consent, create a dedicated inbox-only subscription while preserving existing subscriptions. Persist setup progress before creation, never blindly retry an ambiguous POST, and resume an owned subscription after cancellation or timeout. Explicit subscription adoption is available for reviewed recovery.
+- Merge only this profile's SoWork connection, display overrides and three native secret references, preserving other configuration and comments with checksum review and private backups. Do not change global streaming, model, memory, secrets files or other profiles. Activation uses Hermes' native gateway lifecycle; setup itself starts no receiver/model and sends no chat messages.
+- Test native 1Password hydration with a synthetic authenticated executable, real loopback HTTP, pairing origin checks, restart-free configuration, cancellation/recovery, active-consumer locks and concurrent config protection. Exercise the full native CLI through a disposable terminal.
+
 ## 0.11.3 — preserve model identifiers in native commands
 
 - Decode SoWork's Markdown escapes around square brackets in `/model` commands before native dispatch. An identifier such as `model[1m]` previously persisted with literal backslashes and could fail with an upstream model-not-found error. Ordinary messages and the original event payload remain unchanged.
