@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.11.3 — preserve model identifiers in native commands
+
+- Decode SoWork's Markdown escapes around square brackets in `/model` commands before native dispatch. An identifier such as `model[1m]` previously persisted with literal backslashes and could fail with an upstream model-not-found error. Ordinary messages and the original event payload remain unchanged.
+
 ## 0.11.2 — recover temporary event-route failures
 
 - A generic HTTP 404 from polling or SSE no longer permanently stops a valid receiver. Recheck the original installation, scopes, subscription ownership and enabled DM membership before retrying with bounded backoff and the unchanged cursor. Deleted subscriptions, changed bindings and explicit API errors still stop reception.

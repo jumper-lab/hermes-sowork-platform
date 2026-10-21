@@ -209,6 +209,21 @@ async def test_event_error_context_never_labels_token_errors_as_receive_errors(e
         await client.close()
 
 
+@pytest.mark.parametrize("text,expected", [
+    (r"/model claude-opus-5-5\[1m\] --provider test", "/model claude-opus-5-5[1m] --provider test"),
+    ("/model claude-opus-5-5[1m] --provider test", "/model claude-opus-5-5[1m] --provider test"),
+    (r"Explain \[1m\]", r"Explain \[1m\]"),
+    (r"/model path\with\letters", r"/model path\with\letters"),
+])
+def test_native_model_command_receives_literal_model_brackets(adapter, text, expected):
+    adp, _, _ = adapter
+    raw = event()
+    raw["data"]["message"]["text"] = text
+    normalized = adp.normalize(raw)
+    assert normalized.text == expected
+    assert raw["data"]["message"]["text"] == text
+
+
 def test_durable_ingest_dedupe_and_claim_barrier(tmp_path):
     path = tmp_path / "state.db"
     store = Store(path, "install:sub")

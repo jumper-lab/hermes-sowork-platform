@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 import hashlib
 import json
 import logging
+import re
 import sys
 import time
 
@@ -230,6 +231,11 @@ class SoWorkAdapter(BasePlatformAdapter):
             message_id=message["id"], timestamp=datetime.fromtimestamp(event["createdAt"], timezone.utc),
             internal=False, allow_gateway_control=True,
         )
+        if normalized.get_command() == "model":
+            # SoWork returns literal model brackets escaped as Markdown. Pass
+            # the intended identifier to native /model, not a different model
+            # containing backslashes. Leave ordinary conversation text intact.
+            normalized.text = re.sub(r"\\([\[\]])", r"\1", normalized.text)
         if self.settings.media_enabled and not normalized.is_command():
             # Runtime capabilities ride the new turn's native context. Do not
             # rewrite a conversation's cached prompt or old text-only replies.
