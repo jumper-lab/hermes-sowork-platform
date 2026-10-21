@@ -20,6 +20,7 @@ class SoWorkServer:
         self.closed = threading.Event()
         self.generation = 0
         self.fail_after_accept = False
+        self.get_failures = {}
 
     def start(self):
         owner = self
@@ -82,6 +83,12 @@ class SoWorkServer:
             assert b"client_id=test-client" in content and b"installation_id=install" in content
             return reply({"access_token": "synthetic-access", "expires_in": 3600})
         if h.headers.get("Authorization") != "Bearer synthetic-access":return reply({}, 401)
+        if h.command == "GET":
+            with self.lock:
+                failures = self.get_failures.get(path, [])
+                failure = failures.pop(0) if failures else None
+            if failure:
+                return reply({"error": {"code": failure[1]}}, failure[0])
         if path == "/v1/app":return reply({"installation": {"id": "install", "state": "active", "consentedScopes": ["chat.dm", "chat.write", "chat.history", "events.subscribe:"+DM_EVENT, "events.subscribe:"+THREAD_EVENT]}, "group": {"id": "workspace"}, "appUser": {"id": "app"}})
         if path == "/v1/subscriptions":return reply({"webhooks": [{"id": "sub", "officeId": "workspace", "events": [DM_EVENT, THREAD_EVENT], "creator": {"id": "app"}}]})
         if path == "/v1/chat/dms":return reply({"conversations": [{"id": "dm", "type": "direct", "participants": [{"id": "human"}]}]})

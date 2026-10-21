@@ -83,6 +83,27 @@ class SoWorkAdapter(BasePlatformAdapter):
             return {"id": chat_id, "type": "unknown"}
         return {"id": chat_id, "name": "SoWork private DM", "type": "dm"}
 
+    async def _verify_binding(self):
+        """Recheck the original grant and destination; never provision or widen either."""
+        await self.client.verify_identity(workspace_id=self.settings.workspace_id, app_user_id=self.settings.app_user_id)
+        if self.settings.reaction_probe_enabled and "chat.history" not in self.client.identity["installation"]["consentedScopes"]:
+            raise SoWorkError(403, "reaction_probe_scope_missing")
+        if self.settings.reaction_probe_enabled:
+            await threads.verify_dm(self)
+        if self.settings.threads_enabled:
+            required = {"chat.history", "events.subscribe:" + THREAD_EVENT}
+            if not required.issubset(set(self.client.identity["installation"]["consentedScopes"])):
+                raise SoWorkError(403, "thread_scopes_missing")
+            if not threads.enabled(self):
+                raise SoWorkError(403, "thread_allowlist_mismatch")
+            await threads.verify_dm(self)
+        subscriptions = await self.client.subscriptions()
+        sub = next((s for s in subscriptions if s["id"] == self.settings.subscription_id), None)
+        if not sub or sub.get("url") or sub.get("disabledAt") or sub.get("officeId") != self.settings.workspace_id or sorted(sub.get("events", [])) != sorted(threads.events(self.settings)):
+            raise SoWorkError(403, "pilot_subscription_mismatch")
+        if sub.get("creator", {}).get("id") != self.settings.app_user_id:
+            raise SoWorkError(403, "subscription_owner_mismatch")
+
     async def connect(self, *, is_reconnect=False):
         if self._receiver is not None:
             await self.disconnect()
@@ -98,24 +119,7 @@ class SoWorkAdapter(BasePlatformAdapter):
         try:
             if self.client is None:
                 self.client = Client(self.credentials)
-            await self.client.verify_identity(workspace_id=self.settings.workspace_id, app_user_id=self.settings.app_user_id)
-            if self.settings.reaction_probe_enabled and "chat.history" not in self.client.identity["installation"]["consentedScopes"]:
-                raise SoWorkError(403, "reaction_probe_scope_missing")
-            if self.settings.reaction_probe_enabled:
-                await threads.verify_dm(self)
-            if self.settings.threads_enabled:
-                required = {"chat.history", "events.subscribe:" + THREAD_EVENT}
-                if not required.issubset(set(self.client.identity["installation"]["consentedScopes"])):
-                    raise SoWorkError(403, "thread_scopes_missing")
-                if not threads.enabled(self):
-                    raise SoWorkError(403, "thread_allowlist_mismatch")
-                await threads.verify_dm(self)
-            subscriptions = await self.client.subscriptions()
-            sub = next((s for s in subscriptions if s["id"] == self.settings.subscription_id), None)
-            if not sub or sub.get("url") or sub.get("disabledAt") or sub.get("officeId") != self.settings.workspace_id or sorted(sub.get("events", [])) != sorted(threads.events(self.settings)):
-                raise SoWorkError(403, "pilot_subscription_mismatch")
-            if sub.get("creator", {}).get("id") != self.settings.app_user_id:
-                raise SoWorkError(403, "subscription_owner_mismatch")
+            await self._verify_binding()
             if self.store is None:
                 name = hashlib.sha256(self.scope.encode()).hexdigest()[:24] + ".sqlite3"
                 self.store = Store(get_hermes_home() / "sowork" / name, self.scope)
@@ -387,6 +391,7 @@ class SoWorkAdapter(BasePlatformAdapter):
     async def _receive(self):
         failures = 0
         initialized = False
+        recheck_binding = False
         while self._running:
             try:
                 if not initialized:
@@ -410,6 +415,10 @@ class SoWorkAdapter(BasePlatformAdapter):
                     await self._dispatch_queued()
                     initialized = True
                 self.store.check_retention()
+                if recheck_binding:
+                    self._thread_dm_verified = False
+                    await self._verify_binding()
+                    recheck_binding = False
                 while True:
                     page = await self.client.poll(self.settings.subscription_id, self.store.cursor)
                     for entry in page["items"]:
@@ -430,7 +439,19 @@ class SoWorkAdapter(BasePlatformAdapter):
                 raise
             except SoWorkError as error:
                 failures += 1
-                if (not error.retryable and error.status != 401) or (error.status == 401 and failures >= 3):
+                # An unclassified 404 from an event route can be temporary. Verify
+                # the original binding before any further read; a deleted/changed
+                # subscription or grant still fails closed. Never reset the cursor.
+                generic_event_404 = (error.status == 404 and error.code == "api_error"
+                                     and error.operation in {"poll", "stream"})
+                if generic_event_404:
+                    recheck_binding = True
+                stop = ((not generic_event_404 and not error.retryable and error.status != 401)
+                        or (error.status == 401 and failures >= 3))
+                logger.warning("SoWork receive operation=%s status=%s code=%s action=%s",
+                               error.operation or "other", error.status, error.code,
+                               "stop" if stop else "recheck_binding" if generic_event_404 else "retry")
+                if stop:
                     self._set_fatal_error("sowork_receive", str(error), retryable=False)
                     self._mark_disconnected()
                     await self._notify_fatal_error()

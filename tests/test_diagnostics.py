@@ -60,6 +60,18 @@ def test_offline_inspection_never_resolves_secrets_or_creates_state(profile, mon
     assert {str(p): p.read_bytes() for p in home.iterdir()} == before
 
 
+def test_fatal_receiver_is_reported_as_fatal_in_fresh_native_snapshot(profile):
+    home, _ = profile
+    (home / "gateway_state.json").write_text(json.dumps({
+        "pid": os.getpid(), "hermes_home": str(home),
+        "platforms": {"sowork": {"state": "fatal"}},
+    }))
+    report = diagnostics.inspect(home)
+    assert report["gateway"]["state"] == "fatal"
+    assert report["gateway"]["fresh"]
+    assert "gateway_status_unconfirmed" in report["issues"]
+
+
 def test_live_and_checkpointed_state_read_only_with_pending_review(profile):
     home, cfg = profile
     path = home / "sowork/state.sqlite3"

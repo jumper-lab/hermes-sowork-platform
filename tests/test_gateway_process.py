@@ -98,6 +98,22 @@ def test_real_gateway_tool_result_and_process_restart_keep_dedupe(rig):
     assert sum("tool-complete" in m["body"].get("text", "") for m in api.visible()) == 1
 
 
+@pytest.mark.parametrize("path", ["/v1/events", "/v1/events/stream"])
+def test_real_gateway_recovers_generic_event_404_without_replay(rig, path):
+    api = rig.api
+    before = send(rig, "before-404-" + path.rsplit("/", 1)[-1])
+    with api.lock:
+        api.get_failures[path] = [(404, "api_error")]
+        api.generation += 1
+    wait_until(lambda: not api.get_failures[path], "receive 404", timeout=15, on_timeout=rig.gw.tail)
+    api.replay(before)
+    token = "after-404-" + path.rsplit("/", 1)[-1]
+    send(rig, token)
+    assert rig.director.turns[token] == 1
+    assert rig.director.turns["before-404-" + path.rsplit("/", 1)[-1]] == 1
+    assert all(cursor is not None for cursor in api.poll_cursors[1:])
+
+
 def test_real_gateway_stop_retires_thread_preview_without_partial_final(rig):
     api, gw, director = rig.api, rig.gw, rig.director
     root = str(uuid4())

@@ -134,6 +134,81 @@ async def test_native_cold_start_waits_for_publication_before_acl_and_recovery(a
         await adp.disconnect()
 
 
+@pytest.mark.parametrize("path", ["/v1/events", "/v1/events/stream"])
+@pytest.mark.parametrize("fault", ["temporary", "deleted_subscription", "changed_owner", "revoked_installation", "explicit_not_found"])
+async def test_event_route_404_rechecks_binding_before_resuming(adapter, path, fault):
+    adp, api, _ = adapter
+    failed = False
+    recovered = asyncio.Event()
+    calls_after_failure = []
+
+    def transport(request):
+        nonlocal failed
+        route = request.url.path.removeprefix("/public")
+        if failed:
+            calls_after_failure.append(route)
+            if route == "/v1/subscriptions" and fault == "deleted_subscription":
+                return httpx.Response(200, json={"webhooks": []})
+            if route == "/v1/subscriptions" and fault == "changed_owner":
+                response = api(request).json()
+                response["webhooks"][0]["creator"]["id"] = "another-app"
+                return httpx.Response(200, json=response)
+            if route == "/v1/app" and fault == "revoked_installation":
+                response = identity()
+                response["installation"]["state"] = "revoked"
+                return httpx.Response(200, json=response)
+            if route == path:
+                recovered.set()
+        if route == path and not failed:
+            failed = True
+            if fault == "explicit_not_found":
+                return httpx.Response(404, json={"error": {"code": "subscription_not_found"}})
+            return httpx.Response(404, text="Not Found")
+        return api(request)
+
+    await adp.client.http.aclose()
+    adp.client.http = httpx.AsyncClient(base_url="https://api.sowork.com/public", transport=httpx.MockTransport(transport))
+    adp.store.ingest("opaque/previous", event(), "accepted")
+    adp.store.finish("message", "complete")
+    try:
+        assert await adp.connect()
+        if fault == "temporary":
+            await asyncio.wait_for(recovered.wait(), 10)
+            assert calls_after_failure.index("/v1/app") < calls_after_failure.index(path)
+            assert calls_after_failure.index("/v1/subscriptions") < calls_after_failure.index(path)
+            assert not adp.has_fatal_error
+        else:
+            await asyncio.wait_for(asyncio.shield(adp._receiver), 10)
+            assert adp.has_fatal_error
+            assert not recovered.is_set()
+        assert adp.store.cursor == "opaque/previous"
+        assert adp.store.db.execute("SELECT status FROM inbox WHERE message_id='message'").fetchone()[0] == "complete"
+    finally:
+        await adp.disconnect()
+
+
+@pytest.mark.parametrize("endpoint,operation", [("/oauth/token", None), ("/v1/events", "poll"), ("/v1/events/stream", "stream")])
+async def test_event_error_context_never_labels_token_errors_as_receive_errors(endpoint, operation):
+    api = API()
+    def transport(request):
+        if request.url.path.removeprefix("/public") == endpoint:
+            return httpx.Response(404, text="Not Found")
+        return api(request)
+    client = Client(credentials(), transport=httpx.MockTransport(transport))
+    try:
+        with pytest.raises(SoWorkError) as caught:
+            if endpoint == "/v1/events/stream":
+                async for _ in client.stream_once("sub", "opaque/cursor"):
+                    pass
+            else:
+                await client.poll("sub", "opaque/cursor")
+        assert caught.value.operation == operation
+        assert not caught.value.retryable  # Only the bound receiver may recover.
+        assert "opaque/cursor" not in str(caught.value)
+    finally:
+        await client.close()
+
+
 def test_durable_ingest_dedupe_and_claim_barrier(tmp_path):
     path = tmp_path / "state.db"
     store = Store(path, "install:sub")

@@ -70,7 +70,7 @@ def gateway_summary(home, now):
         os.kill(int(data["pid"]), 0)
         fresh = age <= 120 and data.get("hermes_home") == str(home)
         state = data.get("platforms", {}).get("sowork", {}).get("state")
-        allowed = {"connected", "disconnected", "connecting", "error", "failed"}
+        allowed = {"connected", "disconnected", "connecting", "error", "failed", "fatal"}
         return {"state": state if fresh and state in allowed else "unknown", "fresh": fresh,
                 "snapshot_age_seconds": round(age)}
     except (ValueError, KeyError, OSError, TypeError):

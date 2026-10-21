@@ -22,15 +22,17 @@ REQUIRED_SCOPES = {"chat.dm", "chat.write", "events.subscribe:" + DM_EVENT}
 
 
 class SoWorkError(Exception):
-    def __init__(self, status=0, code="transport_error", *, retry_after=None):
+    def __init__(self, status=0, code="transport_error", *, retry_after=None, operation=None):
         self.status = status
         self.code = code if re.fullmatch(r"[a-zA-Z0-9_]{1,80}", code) else "api_error"
         self.retry_after = retry_after
         self.retryable = status in {0, 408, 429} or status >= 500
-        super().__init__(f"SoWork {self.code} (HTTP {status})")
+        self.operation = operation if operation in {"poll", "stream"} else None
+        context = f" during {self.operation}" if self.operation else ""
+        super().__init__(f"SoWork {self.code} (HTTP {status}){context}")
 
 
-def _error(response):
+def _error(response, *, operation=None):
     code = "api_error"
     try:
         code = response.json().get("error", {}).get("code", code)
@@ -46,7 +48,7 @@ def _error(response):
                 delay = max(0, parsedate_to_datetime(after).timestamp() - time.time())
             except (TypeError, ValueError, OverflowError):
                 pass
-    return SoWorkError(response.status_code, str(code), retry_after=delay)
+    return SoWorkError(response.status_code, str(code), retry_after=delay, operation=operation)
 
 
 @dataclass(frozen=True)
@@ -131,7 +133,7 @@ class Client:
                         return response.json()
                     except ValueError:
                         raise SoWorkError(502, "invalid_json_response") from None
-                error = _error(response)
+                error = _error(response, operation="poll" if method == "GET" and path == "/v1/events" else None)
                 if retry and response.status_code == 401 and not refreshed:
                     if self._token == token:
                         self._token = ""
@@ -300,7 +302,7 @@ class Client:
                     await response.aread()
                     if response.status_code == 401 and self._token == token:
                         self._token = ""
-                    raise _error(response)
+                    raise _error(response, operation="stream")
                 if "text/event-stream" not in response.headers.get("content-type", ""):
                     raise SoWorkError(502, "invalid_stream_content_type")
                 yield Frame(None, None)
