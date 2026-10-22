@@ -18,6 +18,7 @@ from .config import Credentials
 BASE_URL = "https://api.sowork.com/public"
 DM_EVENT = "chat.direct_message_created"
 THREAD_EVENT = "chat.thread_reply_created"
+CHANNEL_EVENT = "chat.channel_message_created"
 REQUIRED_SCOPES = {"chat.dm", "chat.write", "events.subscribe:" + DM_EVENT}
 
 
@@ -148,14 +149,14 @@ class Client:
             delay = error.retry_after if error.retry_after is not None else min(2 ** (attempt - 1), 8)
             await self.sleep(delay + random.uniform(0, 0.25))
 
-    async def verify_identity(self, *, workspace_id=None, app_user_id=None):
+    async def verify_identity(self, *, workspace_id=None, app_user_id=None, required_scopes=None):
         data = await self.request("GET", "/v1/app")
         try:
             installation = data["installation"]
             valid = (
                 installation["id"] == self.credentials.installation_id
                 and installation["state"] == "active"
-                and REQUIRED_SCOPES.issubset(installation["consentedScopes"])
+                and (REQUIRED_SCOPES if required_scopes is None else required_scopes).issubset(installation["consentedScopes"])
                 and (workspace_id is None or data["group"]["id"] == workspace_id)
                 and (app_user_id is None or data["appUser"]["id"] == app_user_id)
             )

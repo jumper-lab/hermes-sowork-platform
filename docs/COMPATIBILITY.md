@@ -20,7 +20,7 @@ The current public stable/main cores reject streaming for external-process provi
 
 ## Supported access and hosts
 
-One explicit human and one private DM; optional threads under that DM. No wildcard or multi-user mode. POSIX locks support Linux/macOS. Python 3.11–3.14 is admitted by package metadata; only tested combinations may be claimed as verified. No test requires real tokens or a running production gateway.
+The original format keeps one explicit human/private DM. The opt-in `channels` mapping supports explicit users in multiple DMs, group DMs and public/private channels, with inherited channel prompts and optional threads. No wildcard or automatic enrollment. The reaction observation experiment remains single-DM only. POSIX locks support Linux/macOS. Python 3.11–3.14 is admitted by package metadata; only tested combinations may be claimed as verified. No test requires real tokens or a running production gateway.
 
 ## Delivery identity boundary (0.11)
 

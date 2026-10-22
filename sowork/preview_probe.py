@@ -55,6 +55,8 @@ def run(request):
         issues = [] if configuration_ready else ["preview_streaming_configuration_blocked"]
         for route in request["routes"]:
             row = {k: route[k] for k in ("kind", "thread_id", "model", "provider")}
+            if "channel_id" in route:
+                row["channel_id"] = route["channel_id"]
             row.update(status="unknown", reason="provider_or_model_unresolved", streaming_allowed_by_core=None)
             if route["provider"] and route["model"]:
                 try:

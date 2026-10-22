@@ -1,6 +1,6 @@
 # Security
 
-Access is restricted to one configured human and one DM. Groups, additional humans, wildcard bindings, unverified thread destinations and arbitrary reaction targets are refused. Emoji never represents approval.
+Access is restricted to explicitly configured conversations and users. The legacy format still permits only its original human and DM. Expanded configurations require both the native Hermes allowlists and each conversation's allowlist; unknown users/channels, wildcard bindings, unverified thread destinations and arbitrary reaction targets are refused. Channel prompts are operator-owned context, never derived from chat messages or channel descriptions. Emoji never represents approval.
 
 Credentials must arrive through Hermes' profile secret interface. Do not paste credentials into issues, logs or fixtures. For a suspected leak, revoke/rotate the affected credential through its owner and remove it from any public artifacts. Report an issue without secret values or private conversation content; a private reporting route can be configured when the public repository is created.
 

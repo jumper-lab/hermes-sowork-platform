@@ -14,10 +14,12 @@ PREVIEW_CHARS = 12000
 
 
 class Feedback:
-    def __init__(self, adapter, turn_id, *, thread_id=None):
+    def __init__(self, adapter, turn_id, *, thread_id=None, chat_id=None, user_id=None):
         self.adapter = adapter
         self.turn_id = turn_id
         self.thread_id = thread_id
+        self.chat_id = chat_id or adapter.settings.channel_id
+        self.user_id = user_id or adapter.settings.allowed_user_id
         self.message_id = None
         self.text = ""
         self.updated = 0
@@ -43,7 +45,7 @@ class Feedback:
 
     async def refresh(self, preview=None):
         adp = self.adapter
-        if (self.closed or self.failed or not adp._authorized_turn(adp.settings.channel_id)
+        if (self.closed or self.failed or not adp._authorized_turn(self.chat_id)
                 or not (adp.settings.progress_enabled or adp.settings.preview_enabled)):
             return
         if preview is not None and adp.settings.preview_enabled:
@@ -54,7 +56,7 @@ class Feedback:
             if self.closed or self.failed:
                 return
             # Core live_status=verb supplies only activity, never tool arguments/output.
-            status = adp._status_text.get(adp.settings.channel_id) or "Trabalhando…"
+            status = adp._status_text.get(self.chat_id) or "Trabalhando…"
             text = "✍️ Prévia\n\n" + self.preview if self.preview else "⏳ " + status[:100]
             elapsed = time.monotonic() - self.updated
             if (self.preview and self.text.startswith("✍️ Prévia") and elapsed < PREVIEW_INTERVAL) or (text == self.text and elapsed < 40):
@@ -62,8 +64,8 @@ class Feedback:
             try:
                 async with asyncio.timeout(1.4):
                     if self.message_id is None:
-                        self.message_id = await adp.client.create_progress(adp.settings.channel_id,
-                                                                           adp.settings.allowed_user_id, self.key,
+                        self.message_id = await adp.client.create_progress(self.chat_id,
+                                                                           self.user_id, self.key,
                                                                            parent_id=self.thread_id, text=text)
                         adp.store.remember_visual(self.turn_id, self.message_id)
                     else:

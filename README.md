@@ -2,17 +2,18 @@
 
 [![Plugin compatibility](https://github.com/jumper-lab/hermes-sowork-platform/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/jumper-lab/hermes-sowork-platform/actions/workflows/ci.yml)
 
-An independent Hermes gateway plugin for **one explicitly authorized human and one private SoWork DM**, including threads in that DM. Uses installation OAuth, REST delivery and SSE with cursor recovery. No new model tools or prompt changes during a conversation.
+An independent Hermes gateway plugin for **explicitly configured users and conversations**: one-to-one DMs, group DMs and public/private channels, including threads. Uses installation OAuth, REST delivery and SSE with cursor recovery. Existing single-human DM configurations keep their original access without migration. No new model tools or core patches.
 
 ## Supported scope
 
 - Text, images, documents, audio and video through Hermes' existing media interfaces.
 - Native Hermes sessions, tools, skills, textual approvals, `/reset` and `/stop`.
 - Optional isolated threads, cron delivery, processing reactions and private incremental previews.
+- Explicit user lists per conversation and native Hermes channel prompts; sessions retain Hermes' own channel/thread/user isolation rules.
 - Optional bounded reaction experiment: `/reaction-test` observes 👀 on its own test message, for at most 120 seconds and 12 reads including baseline. Its sole effect is removing its private indicator. `/reaction-status` reports the result. **An emoji never authorizes or executes anything.** Main DM only.
 - Local status/configuration diagnostics and read-only connection verification.
 
-Audio is delivered as an attachment, not a native voice-note UI. Interactive buttons, permanent message editing/deletion, general reaction events, other users and group/channel conversations are outside this release. Preview availability also depends on Hermes and the selected provider; unsupported routes fall back to a final response. No provider/core patch is installed by this plugin.
+Audio is delivered as an attachment, not a native voice-note UI. Interactive buttons, permanent message editing/deletion and general reaction events are outside this release. The bounded reaction experiment remains limited to the original single-DM configuration. Preview availability also depends on Hermes and the selected provider; unsupported routes fall back to a final response. No provider/core patch is installed by this plugin.
 
 ## Requirements
 
@@ -68,7 +69,41 @@ If pairing times out or you cancel the final save, run setup again: its private 
 
 ## Access and API scopes
 
-The configuration must pin the workspace, app, subscription, human and DM IDs. `allow_from` must contain **exactly** that human. The plugin retains Hermes' authorization checks in addition to its own binding checks.
+The original configuration pins workspace, app, subscription, human and DM IDs; `allow_from` still contains **exactly** that human. Installing an update never enrolls other people or conversations. To expand access explicitly, use the conversation mapping below. The plugin retains Hermes' authorization checks in addition to its own binding checks.
+
+## Multiple conversations and channel prompts
+
+See [the complete non-secret configuration example](examples/channels.yaml). In the selected profile's existing `platforms.sowork.extra`, add `channels`, keyed by immutable SoWork conversation ID. Each entry requires `type` (`dm`, `group_dm`, `public` or `private`) and a nonempty `allow_from` list of user IDs. A `dm` binds exactly one peer. No wildcard, automatic enrollment, external-workspace conversation or implicit channel discovery is supported.
+
+```yaml
+channels:
+  "CLIENT_A_CHANNEL_ID":
+    type: private
+    allow_from: ["USER_A_ID", "USER_B_ID"]
+  "CLIENT_B_CHANNEL_ID":
+    type: public
+    allow_from: ["USER_B_ID"]
+allow_from: ["USER_A_ID", "USER_B_ID"]
+group_allow_from: ["USER_A_ID", "USER_B_ID"]
+channel_prompts:
+  "CLIENT_A_CHANNEL_ID": |
+    This conversation is about Client A, represented in Flow by ID 100.
+    Client A sells sporting goods. Use this as the default client context.
+  "CLIENT_B_CHANNEL_ID": |
+    This conversation is about Client B, represented in Flow by ID 200.
+```
+
+`allow_from` must equal the union of all configured conversation users. Hermes' separate `group_allow_from` must equal the union of users configured for channels/group DMs. Both lists and the per-conversation list must permit the sender. Other workspace members do not gain access merely by joining a channel. A participant list is an invocation allowlist; permanent replies are visible to the conversation's normal audience.
+
+If the legacy `allowed_user_id` / `channel_id` fields are retained, include that original 1:1 DM with its original peer in `channels` too. For a channel-only installation, omit both legacy fields. A native `home_channel`, when configured, must identify one of the explicit conversations. Other platforms and profile settings do not need to change.
+
+The app must already belong to every configured conversation. `check-connection` verifies membership through documented, bounded GET listings; it never joins, creates or modifies a conversation. Each app installation/profile still owns one exclusive inbox subscription. Its event list must match the configured routes: `chat.direct_message_created` for DMs/group DMs, `chat.channel_message_created` for public/private channels, plus `chat.thread_reply_created` when threads are enabled. Corresponding event scopes, `chat.write`, `chat.dm` for DMs and `chat.history` for channels/threads must already be granted. Expanding a configuration requires an operator to review the app grant and that profile's subscription first; the plugin never widens them automatically. The guided setup intentionally starts with one confirmed human/DM.
+
+Prompts come from operator configuration, using Hermes' `resolve_channel_prompt` → `MessageEvent.channel_prompt` path. A thread inherits its conversation's prompt. Message text, channel descriptions and client names never become system instructions. Follow native Hermes session/reset behavior when changing prompts; the plugin does not rebuild cached prompts, edit old history or change tools. The native `channel_overrides` mechanism remains owned by Hermes.
+
+Authorized messages in an explicitly configured conversation trigger replies without requiring an @mention. One-to-one DMs remain private sessions. Group/channel sessions use Hermes' defaults: separate users in the main conversation and a shared session inside each thread, unless the operator selects different native session settings. Replies, files, approvals, previews and `/stop` use the originating conversation/thread. Temporary previews are visible only to the requesting user. Cron delivery and explicit send targets are restricted to configured conversations; unconfigured targets remain refused.
+
+Before activation, drain work and review pending/uncertain deliveries; run `hermes --profile my-agent sowork --json check-connection` and `status`, then restart only that profile's gateway using Hermes' lifecycle. Never restore an old cursor or journal to change access. An update by itself leaves the active allowlists, subscriptions and gateways unchanged.
 
 Baseline scopes: `chat.dm`, `chat.write`, `events.subscribe:chat.direct_message_created`. Threads additionally require already-consented `chat.history` and `events.subscribe:chat.thread_reply_created`; the exclusive subscription must contain exactly the enabled events. The bounded reaction experiment also needs `chat.history`. Setup can create its own subscription with these already-granted events after confirmation; the gateway transport never creates one. Permission is never requested automatically.
 
