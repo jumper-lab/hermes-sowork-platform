@@ -49,9 +49,10 @@ def register(ctx):
         parse_target_ref_fn=parse_target, validate_target_ref_fn=validate_target,
         allow_update_command=False, emoji="💬",
         platform_hint=(
-            "This is a private SoWork direct message. Incoming attachments use normal Hermes "
+            "This is a configured SoWork conversation. Incoming attachments use normal Hermes "
             "media handling; when enabled, outgoing MEDIA files are uploaded natively. "
-            "An optional private temporary preview shows generated text and activity. Send a final response; "
+            "Replies stay in the originating conversation/thread. An optional temporary preview is private "
+            "to the requesting person and shows generated text and activity. Send a final response; "
             "permanent message editing and interactive buttons are unavailable. "
             "Text slash commands and approvals use the normal Hermes gateway."
         ),

@@ -15,11 +15,11 @@ import time
 from hermes_constants import get_hermes_home
 
 from .client import SoWorkError
+from . import routing
 
 
 def enabled(config, settings):
-    return (config.enabled is True and settings.proactive_enabled
-            and config.extra.get("allow_from") == [settings.allowed_user_id])
+    return settings.proactive_enabled and routing.active(config, settings)
 
 
 def parse_target(reference):
@@ -47,12 +47,12 @@ def validate_target(chat_id):
         data = yaml.safe_load((get_hermes_home() / "config.yaml").read_text())["platforms"]["sowork"]
         config = PlatformConfig.from_dict(data)
         settings = Settings.from_extra(config.extra)
-        return enabled(config, settings) and chat_id == settings.channel_id
+        return enabled(config, settings) and settings.conversation(chat_id) is not None
     except (KeyError, TypeError, ValueError, OSError):
         return False
 
 
-def operation(home, metadata=None, *, host, channel_id=None, thread_id=None):
+def operation(home, metadata=None, *, host, channel_id=None, thread_id=None, multi_channel=False):
     """Only executor-bound identity is accepted; payload/metadata cannot mint it."""
     from agent.secret_scope import current_secret_scope_home
     from hermes_cli.profiles import current_profile_name
@@ -81,6 +81,8 @@ def operation(home, metadata=None, *, host, channel_id=None, thread_id=None):
             raise SoWorkError(403, "proactive_execution_identity_required")
         identity = ["cron", queued[0], queued[1]]
     import json
+    if multi_channel and channel_id:
+        identity += ["channel", channel_id]
     if thread_id:
         identity += ["thread", thread_id]
     return "proactive_" + hashlib.sha256(json.dumps([str(home), *identity]).encode()).hexdigest()
@@ -88,13 +90,15 @@ def operation(home, metadata=None, *, host, channel_id=None, thread_id=None):
 
 def authorized(adapter, chat_id, metadata=None, reply_to=None):
     from .threads import destination
-    root = destination(adapter, metadata)
-    if (not adapter.client or not adapter.store or not enabled(adapter.config, adapter.settings) or chat_id != adapter.settings.channel_id
+    root = destination(adapter, metadata, chat_id)
+    if (not adapter.client or not adapter.store or not enabled(adapter.config, adapter.settings)
+            or adapter.settings.conversation(chat_id) is None
             or (reply_to and reply_to != root) or (metadata or {}).get("parentId")):
         raise SoWorkError(403, "proactive_destination_denied")
-    if adapter._is_sender_authorized(adapter.settings.allowed_user_id, "dm", chat_id) is not True:
+    if not routing.target_authorized(adapter, chat_id):
         raise SoWorkError(403, "gateway_acl_denied")
-    return operation(adapter._home, metadata, host=adapter.host, channel_id=chat_id, thread_id=root)
+    return operation(adapter._home, metadata, host=adapter.host, channel_id=chat_id, thread_id=root,
+                     multi_channel=bool(adapter.settings.channels and chat_id != adapter.settings.channel_id))
 
 
 @asynccontextmanager
@@ -132,23 +136,28 @@ async def standalone_send(config, chat_id, message, *, host, thread_id=None, med
         current = load_gateway_config().platforms.get(Platform("sowork"))
         if (not current or not enabled(current, Settings.from_extra(current.extra))
                 or not enabled(config, settings) or Settings.from_extra(current.extra) != settings
-                or chat_id != settings.channel_id or (thread_id and not settings.threads_enabled)):
+                or settings.conversation(chat_id) is None or (thread_id and not settings.threads_enabled)):
             raise SoWorkError(403, "proactive_destination_denied")
-        operation(get_hermes_home(), host=host, channel_id=chat_id, thread_id=thread_id)  # No credential lookup/network before the identity gate.
+        operation(get_hermes_home(), host=host, channel_id=chat_id, thread_id=thread_id,
+                  multi_channel=bool(settings.channels and chat_id != settings.channel_id))  # Preserve primary-DM delivery keys.
         adapter = SoWorkAdapter(config, host=host)
         adapter.set_authorization_check(lambda user, kind, chat: (
-            user == settings.allowed_user_id and kind == "dm" and chat == settings.channel_id
+            settings.conversation(chat) is not None and user in settings.conversation(chat).allow_from
+            and kind == settings.conversation(chat).chat_type
             and enabled(current, settings)))
         name = hashlib.sha256(adapter.scope.encode()).hexdigest()[:24] + ".sqlite3"
         adapter.store = Store(adapter._home / "sowork" / name, adapter.scope)
         metadata = {"thread_id": thread_id} if thread_id else None
         if thread_id:
             from .threads import destination, verify_dm
-            destination(adapter, metadata)
+            destination(adapter, metadata, chat_id)
         from .client import Client
         adapter.client = Client(adapter.credentials)
-        await adapter.client.verify_identity(workspace_id=settings.workspace_id, app_user_id=settings.app_user_id)
-        if thread_id:
+        await adapter.client.verify_identity(workspace_id=settings.workspace_id, app_user_id=settings.app_user_id,
+                                             required_scopes=routing.scopes(settings))
+        if settings.channels:
+            await routing.verify_conversations(adapter)
+        elif thread_id:
             await verify_dm(adapter)
         # Match native live send_message caption placement; cron always sends text and files separately.
         from .hermes_compat import tool_call_id, queued_execution

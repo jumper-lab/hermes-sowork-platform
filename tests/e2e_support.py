@@ -9,6 +9,7 @@ from uuid import uuid4
 
 DM_EVENT = "chat.direct_message_created"
 THREAD_EVENT = "chat.thread_reply_created"
+CHANNEL_EVENT = "chat.channel_message_created"
 
 
 class SoWorkServer:
@@ -25,6 +26,8 @@ class SoWorkServer:
         self.fail_subscription_after_accept = False
         self.dm_participants = [{"id": "human"}]
         self.owner_user_id = None
+        self.conversations = None
+        self.channels = []
 
     def start(self):
         owner = self
@@ -45,15 +48,19 @@ class SoWorkServer:
     def close(self):
         self.closed.set();self.server.shutdown();self.server.server_close();self.thread.join(5)
 
-    def message(self, text, *, sender="human", root=None, mid=None):
+    def message(self, text, *, sender="human", root=None, mid=None, channel="dm", kind="dm"):
         mid = mid or str(uuid4())
-        msg = {"id": mid, "text": text, "channel": {"id": "dm", "type": "dm"},
+        wire_type = "dm" if kind in ("dm", "group_dm") else kind
+        msg = {"id": mid, "text": text, "channel": {"id": channel, "type": wire_type},
                "sender": {"id": sender}, "createdAt": time.time()}
-        data = {"message": msg, "channelId": "dm", "conversationType": "direct", "memberCount": 2}
+        data = {"message": msg, "channelId": channel,
+                "conversationType": "group" if kind == "group_dm" else "direct", "memberCount": 3 if kind == "group_dm" else 2}
+        if wire_type != "dm":
+            data = {"message": msg, "channel": msg["channel"], "threadRootId": None}
         if root:
             msg["parentId"] = root
-            data.update(threadRootId=root, channel={"id": "dm", "type": "dm"})
-        event = {"id": str(uuid4()), "type": THREAD_EVENT if root else DM_EVENT,
+            data.update(threadRootId=root, channel=msg["channel"])
+        event = {"id": str(uuid4()), "type": THREAD_EVENT if root else DM_EVENT if wire_type == "dm" else CHANNEL_EVENT,
                  "officeId": "workspace", "installationId": "install", "createdAt": time.time(), "data": data}
         self.replay(event)
         return event
@@ -93,7 +100,7 @@ class SoWorkServer:
                 failure = failures.pop(0) if failures else None
             if failure:
                 return reply({"error": {"code": failure[1]}}, failure[0])
-        if path == "/v1/app":return reply({"installation": {"id": "install", "state": "active", "consentedScopes": ["chat.dm", "chat.write", "chat.history", "events.subscribe:"+DM_EVENT, "events.subscribe:"+THREAD_EVENT], **({"ownerUserId": self.owner_user_id} if self.owner_user_id else {})}, "group": {"id": "workspace"}, "appUser": {"id": "app"}})
+        if path == "/v1/app":return reply({"installation": {"id": "install", "state": "active", "consentedScopes": ["chat.dm", "chat.write", "chat.history", "events.subscribe:"+DM_EVENT, "events.subscribe:"+THREAD_EVENT, "events.subscribe:"+CHANNEL_EVENT], **({"ownerUserId": self.owner_user_id} if self.owner_user_id else {})}, "group": {"id": "workspace"}, "appUser": {"id": "app"}})
         if path == "/v1/subscriptions":
             if h.command == "POST":
                 with self.lock:
@@ -106,7 +113,8 @@ class SoWorkServer:
                         return
                 return reply(sub)
             with self.lock:return reply({"webhooks": copy.deepcopy(list(self.subscriptions.values()))})
-        if path == "/v1/chat/dms":return reply({"conversations": [{"id": "dm", "type": "direct", "participants": self.dm_participants}]})
+        if path == "/v1/chat/dms":return reply({"conversations": self.conversations if self.conversations is not None else [{"id": "dm", "type": "direct", "participants": self.dm_participants}]})
+        if path == "/v1/chat/channels":return reply({"channels": self.channels})
         if path.endswith("/replies"):return reply({"parent": self.parents[path.split("/")[-2]], "messages": []})
         if path == "/v1/events":
             cursor = query.get("after", [None])[0]
@@ -128,20 +136,22 @@ class SoWorkServer:
                     self.closed.wait(.05)
             except (BrokenPipeError, ConnectionResetError):pass
             return
-        if path == "/v1/chat/channels/dm/messages":
+        if path.startswith("/v1/chat/channels/") and path.endswith("/messages"):
+            channel = path.split("/")[-2]
             key = h.headers.get("Idempotency-Key")
             assert key
             with self.lock:
                 previous = self.deliveries.get(key)
                 assert previous is None or previous["body"] == body
-                receipt = previous or {"id": str(uuid4()), "sender": {"id": "app"}, "channel": {"id": "dm"}, "body": body, **({"parentId": body["parentId"]} if body.get("parentId") else {})}
+                receipt = previous or {"id": str(uuid4()), "sender": {"id": "app"}, "channel": {"id": channel}, "body": body, **({"parentId": body["parentId"]} if body.get("parentId") else {})}
                 self.deliveries[key] = receipt
                 fail, self.fail_after_accept = self.fail_after_accept, False
             return reply({"error": {"code": "temporary"}} if fail else receipt, 503 if fail else 200)
-        if path == "/v1/chat/channels/dm/ephemeral-messages":
+        if path.startswith("/v1/chat/channels/") and path.endswith("/ephemeral-messages"):
             mid = str(uuid4())
+            channel = path.split("/")[-2]
             with self.lock:self.previews[mid] = body
-            return reply({"id": mid, "channelId": "dm", "visibleToUserId": "human", "senderId": "app", **({"parentId": body["parentId"]} if body.get("parentId") else {})})
+            return reply({"id": mid, "channelId": channel, "visibleToUserId": body["visibleToUserId"], "senderId": "app", **({"parentId": body["parentId"]} if body.get("parentId") else {})})
         if path.startswith("/v1/chat/ephemeral-messages/"):
             mid = path.rsplit("/", 1)[-1]
             with self.lock:

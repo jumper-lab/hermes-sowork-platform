@@ -214,6 +214,9 @@ class ReactionProbe:
         self.task = None
 
     async def handle(self, event):
+        if self.adapter.settings.channels:
+            return await self.adapter.send(event.source.chat_id,
+                "The limited reaction probe is available only with the original single-DM configuration.")
         if command(event.text) == "/reaction-test":
             await self.start(event)
         else:

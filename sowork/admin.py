@@ -52,12 +52,13 @@ def binding(config):
         platform = config["platforms"]["sowork"]
         settings = Settings.from_extra(platform["extra"])
         if (platform.get("enabled") is not True
-                or platform["extra"].get("allow_from") != [settings.allowed_user_id]):
-            raise AdminError("single_human_binding_required")
+                or not settings.allowlist_matches(platform["extra"])):
+            raise AdminError("explicit_conversation_binding_required")
         home = platform.get("home_channel")
-        if home and (home.get("chat_id") != settings.channel_id or home.get("thread_id")
-                     or home.get("user_id") not in (None, settings.allowed_user_id)):
-            raise AdminError("home_target_mismatch")
+        if home:
+            route = settings.conversation(home.get("chat_id"))
+            if not route or home.get("thread_id") or home.get("user_id") not in (None, *route.allow_from):
+                raise AdminError("home_target_mismatch")
         return settings
     except AdminError:
         raise
@@ -69,8 +70,12 @@ def config_summary(config, settings):
     display = config.get("display", {}).get("platforms", {}).get("sowork", {})
     return {
         "binding": {"workspace_id": settings.workspace_id, "app_user_id": settings.app_user_id,
-                    "allowed_user_ids": [settings.allowed_user_id], "channel_id": settings.channel_id,
+                    "allowed_user_ids": list(settings.allowed_users), "channel_id": settings.channel_id,
                     "subscription_id": settings.subscription_id},
+        "channels": [{"channel_id": route.channel_id, "type": route.type,
+                      "allowed_user_ids": list(route.allow_from),
+                      "has_prompt": bool(config["platforms"]["sowork"]["extra"].get("channel_prompts", {}).get(route.channel_id))}
+                     for route in settings.conversations],
         "features": {name: getattr(settings, name + "_enabled") for name in FEATURES},
         "preview_available_locally": bool(settings.preview_enabled and preview_compatible(config)
             and display.get("streaming") is True),
@@ -203,7 +208,7 @@ async def check_connection(home):
     client = Client(credentials)
     try:
         verified = await verify_connection(client, settings)
-        return {**verified, "allowed_user_ids": [settings.allowed_user_id],
+        return {**verified, "allowed_user_ids": list(settings.allowed_users),
                 "installation_id": credentials.installation_id,
                 "credential_source": "Hermes active profile", "config_sha256": sha,
                 "messages_sent": 0, "receiver_started": False}
@@ -221,8 +226,10 @@ async def check_connection(home):
 async def verify_connection(client, settings):
     """GET-only validation of a complete candidate, before configuration is committed."""
     from .client import THREAD_EVENT
-    from .threads import events, verify_dm
-    await client.verify_identity(workspace_id=settings.workspace_id, app_user_id=settings.app_user_id)
+    from .threads import events
+    from .routing import scopes, verify_conversations
+    await client.verify_identity(workspace_id=settings.workspace_id, app_user_id=settings.app_user_id,
+                                 required_scopes=scopes(settings))
     if settings.reaction_probe_enabled and "chat.history" not in client.identity["installation"]["consentedScopes"]:
         raise AdminError("reaction_probe_scope_missing")
     if settings.threads_enabled and not {"chat.history", "events.subscribe:" + THREAD_EVENT}.issubset(
@@ -235,6 +242,7 @@ async def verify_connection(client, settings):
             or sorted(sub.get("events", [])) != sorted(events(settings))
             or sub.get("creator", {}).get("id") != settings.app_user_id):
         raise AdminError("subscription_mismatch")
-    await verify_dm(SimpleNamespace(client=client, settings=settings, _thread_dm_verified=False))
+    await verify_conversations(SimpleNamespace(client=client, settings=settings, _thread_dm_verified=False))
     return {"connection": "verified", "identity_verified": True, "subscription_verified": True,
-            "dm_membership_verified": True}
+            "dm_membership_verified": any(c.wire_type == "dm" for c in settings.conversations),
+            "channel_membership_verified": any(c.wire_type != "dm" for c in settings.conversations)}

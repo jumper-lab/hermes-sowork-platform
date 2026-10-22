@@ -1,8 +1,8 @@
 name: sowork-platform
 label: SoWork
 kind: platform
-version: 0.12.0
-description: Private SoWork DM gateway with media, isolated threads and optional private previews.
+version: 0.13.0
+description: SoWork gateway with explicit users and conversations, channel prompts, media, threads and private previews.
 author: Bruno / Jumper Studio
 license: MIT
 requires_hermes: ">=0.21.5"

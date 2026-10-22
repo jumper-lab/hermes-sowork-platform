@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.13.0 — explicit conversation routes and channel prompts
+
+- Add opt-in routes for multiple 1:1 DMs, group DMs and public/private channels, each with explicit authorized users. Keep the existing single-human/DM format and its access unchanged. Validate app membership and the exact subscription/scopes without joining channels, modifying grants or enrolling anyone.
+- Forward configured channel prompts through Hermes' native event interface. Threads inherit their conversation's context; native per-user/channel/thread sessions, approvals and cancellation remain authoritative. No Flow integration, tool-permission changes or core patches.
+- Bind reactive text/files and durable retries to the original channel, thread and sender; scope thread lookup and private previews to their actual conversation/requester. Restrict cron and standalone sends to configured destinations and preserve original primary-DM delivery keys.
+- Extend read-only diagnostics and add native gateway process tests for concurrent channels, multiple users, prompt/history isolation, inherited thread prompts, private previews, cancellation and restart deduplication. Deployment and access expansion remain separate operator actions.
+
 ## 0.12.0 — interactive profile onboarding
 
 - Add `hermes sowork setup`: validate the active profile, use its native credentials or map missing 1Password field references, discover the app/workspace and pair one human through a fresh code in a private DM. The code nominates a sender; explicit confirmation and API membership validation authorize the binding.

@@ -14,6 +14,9 @@ def missing_contracts():
         except (ImportError, ValueError):
             missing.append(module)
     from gateway.platforms.base import BasePlatformAdapter
+    from gateway.platforms import base
+    if not callable(getattr(base, "resolve_channel_prompt", None)):
+        missing.append("gateway.platforms.base.resolve_channel_prompt")
     for method in ("_event_session_key", "supports_draft_streaming"):
         if not hasattr(BasePlatformAdapter, method):
             missing.append("BasePlatformAdapter." + method)

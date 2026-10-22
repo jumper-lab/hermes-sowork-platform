@@ -20,7 +20,7 @@ def export(root, output):
     files += sorted((root / 'tests').glob('*.py'))
     files += [root / 'docs' / name for name in DOCS]
     files += [root / 'scripts' / name for name in SCRIPTS]
-    files += [root / 'examples/config.yaml', root / '.github/workflows/ci.yml']
+    files += [root / 'examples/config.yaml', root / 'examples/channels.yaml', root / '.github/workflows/ci.yml']
     if any(not p.is_file() or p.is_symlink() for p in files):
         raise ValueError('Publication source must contain regular files only')
     output.mkdir(parents=True)

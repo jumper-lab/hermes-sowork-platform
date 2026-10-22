@@ -1,0 +1,47 @@
+# Merge only the SoWork entries into the selected profile; no credentials here.
+plugins:
+  enabled: [sowork-platform]
+platforms:
+  sowork:
+    enabled: true
+    home_channel:
+      platform: sowork
+      chat_id: ORIGINAL_DM_ID
+    extra:
+      workspace_id: CONFIRMED_WORKSPACE_ID
+      app_user_id: CONFIRMED_APP_USER_ID
+      subscription_id: EXCLUSIVE_SUBSCRIPTION_ID
+      # Retain these for an existing installation and include its original DM below.
+      allowed_user_id: OWNER_USER_ID
+      channel_id: ORIGINAL_DM_ID
+      allow_from: [OWNER_USER_ID, TEAMMATE_USER_ID]
+      group_allow_from: [OWNER_USER_ID, TEAMMATE_USER_ID]
+      channels:
+        ORIGINAL_DM_ID:
+          type: dm
+          allow_from: [OWNER_USER_ID]
+        TEAMMATE_DM_ID:
+          type: dm
+          allow_from: [TEAMMATE_USER_ID]
+        CLIENT_A_CHANNEL_ID:
+          type: private
+          allow_from: [OWNER_USER_ID, TEAMMATE_USER_ID]
+        CLIENT_B_CHANNEL_ID:
+          type: public
+          allow_from: [TEAMMATE_USER_ID]
+        TEAM_DM_ID:
+          type: group_dm
+          allow_from: [OWNER_USER_ID, TEAMMATE_USER_ID]
+      channel_prompts:
+        CLIENT_A_CHANNEL_ID: |
+          This conversation is about Client A, Flow ID 100, a sporting goods retailer.
+        CLIENT_B_CHANNEL_ID: |
+          This conversation is about Client B, Flow ID 200, a local service business.
+      threads_enabled: true
+      media_enabled: true
+      proactive_enabled: true
+      reactions_enabled: true
+      progress_enabled: true
+      # Enable only when the profile already supports compatible global streaming.
+      preview_enabled: false
+      reaction_probe_enabled: false

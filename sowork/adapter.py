@@ -13,7 +13,7 @@ import sys
 import time
 
 from gateway.config import Platform
-from gateway.platforms.base import BasePlatformAdapter, MessageEvent, MessageType, ProcessingOutcome, SendResult
+from gateway.platforms.base import BasePlatformAdapter, MessageEvent, MessageType, ProcessingOutcome, SendResult, resolve_channel_prompt
 from gateway.session import SessionSource
 from hermes_constants import get_hermes_home
 
@@ -24,7 +24,7 @@ from .feedback import Feedback
 from .reaction_probe import ReactionProbe, command as reaction_command
 from .media import read_outbound, receive_media, valid_attachments
 from .state import ReconciliationRequired, Store
-from . import proactive, threads
+from . import proactive, threads, routing
 
 logger = logging.getLogger(__name__)
 
@@ -35,6 +35,8 @@ class Turn:
     sequence: int = 0
     active: bool = True
     thread_id: str | None = None
+    chat_id: str | None = None
+    user_id: str | None = None
 
 
 _turn: ContextVar[Turn | None] = ContextVar("sowork_turn", default=None)
@@ -68,6 +70,7 @@ class SoWorkAdapter(BasePlatformAdapter):
         self._admission_keys = {}
         self._thread_dm_verified = False
         self._thread_context_seen = set()
+        self._conversations_verified = False
         self._reaction_probe = ReactionProbe(self)
 
     @property
@@ -80,16 +83,23 @@ class SoWorkAdapter(BasePlatformAdapter):
         return proactive.enabled(self.config, self.settings)
 
     async def get_chat_info(self, chat_id):
-        if chat_id != self.settings.channel_id:
+        route = self.settings.conversation(chat_id)
+        if route is None:
             return {"id": chat_id, "type": "unknown"}
-        return {"id": chat_id, "name": "SoWork private DM", "type": "dm"}
+        return {"id": chat_id, "name": "SoWork " + route.type, "type": route.chat_type}
 
     async def _verify_binding(self):
         """Recheck the original grant and destination; never provision or widen either."""
-        await self.client.verify_identity(workspace_id=self.settings.workspace_id, app_user_id=self.settings.app_user_id)
+        await self.client.verify_identity(workspace_id=self.settings.workspace_id, app_user_id=self.settings.app_user_id,
+                                          required_scopes=routing.scopes(self.settings))
+        if self.settings.channels and not routing.active(self.config, self.settings):
+            raise SoWorkError(403, "conversation_allowlist_mismatch")
+        if self.settings.channels:
+            await routing.verify_conversations(self)
+            self._conversations_verified = True
         if self.settings.reaction_probe_enabled and "chat.history" not in self.client.identity["installation"]["consentedScopes"]:
             raise SoWorkError(403, "reaction_probe_scope_missing")
-        if self.settings.reaction_probe_enabled:
+        if self.settings.reaction_probe_enabled and not self.settings.channels:
             await threads.verify_dm(self)
         if self.settings.threads_enabled:
             required = {"chat.history", "events.subscribe:" + THREAD_EVENT}
@@ -97,7 +107,8 @@ class SoWorkAdapter(BasePlatformAdapter):
                 raise SoWorkError(403, "thread_scopes_missing")
             if not threads.enabled(self):
                 raise SoWorkError(403, "thread_allowlist_mismatch")
-            await threads.verify_dm(self)
+            if not self.settings.channels:
+                await threads.verify_dm(self)
         subscriptions = await self.client.subscriptions()
         sub = next((s for s in subscriptions if s["id"] == self.settings.subscription_id), None)
         if not sub or sub.get("url") or sub.get("disabledAt") or sub.get("officeId") != self.settings.workspace_id or sorted(sub.get("events", [])) != sorted(threads.events(self.settings)):
@@ -181,20 +192,32 @@ class SoWorkAdapter(BasePlatformAdapter):
         sender = message.get("sender", {})
         if not isinstance(channel, dict) or not isinstance(sender, dict):
             return "malformed"
-        if channel.get("type") != "dm":
+        route = self.settings.conversation(channel.get("id"))
+        if route is None:
+            return "wrong_channel"
+        if channel.get("type") != route.wire_type:
             return "not_individual_dm"
-        if event["type"] == DM_EVENT and (data.get("conversationType") != "direct" or data.get("memberCount") != 2):
-            return "not_individual_dm"
+        if event["type"] == DM_EVENT:
+            if route.type not in ("dm", "group_dm"):
+                return "unsupported_event"
+            if route.type == "dm" and (data.get("conversationType") != "direct" or data.get("memberCount") != 2):
+                return "not_individual_dm"
+            if route.type == "group_dm" and (data.get("conversationType") != "group"
+                    or type(data.get("memberCount")) is not int or data["memberCount"] < 3):
+                return "conversation_type_mismatch"
+        elif event["type"] != THREAD_EVENT and route.wire_type == "dm":
+            return "unsupported_event"
         if event["type"] == THREAD_EVENT and not isinstance(data.get("channel"), dict):
             return "malformed"
-        if event["type"] == THREAD_EVENT and data["channel"].get("type") != "dm":
+        if event["type"] != DM_EVENT and (not isinstance(data.get("channel"), dict)
+                or data["channel"].get("type") != route.wire_type):
             return "not_individual_dm"
         envelope_channel = data.get("channelId") if event["type"] == DM_EVENT else data["channel"].get("id")
-        if channel.get("id") != self.settings.channel_id or envelope_channel != channel.get("id"):
+        if envelope_channel != channel.get("id"):
             return "wrong_channel"
         if sender.get("id") == self.settings.app_user_id:
             return "self_message"
-        if sender.get("id") != self.settings.allowed_user_id:
+        if sender.get("id") not in route.allow_from:
             return "unbound_sender"
         try:
             root = threads.root_id(event)
@@ -218,9 +241,11 @@ class SoWorkAdapter(BasePlatformAdapter):
 
     def normalize(self, event):
         message = event["data"]["message"]
+        route = self.settings.conversation(message["channel"]["id"])
         source = SessionSource(
-            platform=self.platform, chat_id=message["channel"]["id"], chat_type="dm",
+            platform=self.platform, chat_id=message["channel"]["id"], chat_type=route.chat_type,
             user_id=message["sender"]["id"], message_id=message["id"],
+            user_name=message["sender"].get("name"), chat_name=message["channel"].get("name"),
             scope_id=self.settings.workspace_id,
             thread_id=threads.root_id(event),
         )
@@ -230,6 +255,7 @@ class SoWorkAdapter(BasePlatformAdapter):
             message_type=(MessageType.DOCUMENT if message.get("attachments") else MessageType.TEXT),
             message_id=message["id"], timestamp=datetime.fromtimestamp(event["createdAt"], timezone.utc),
             internal=False, allow_gateway_control=True,
+            channel_prompt=resolve_channel_prompt(self.config.extra, route.channel_id),
         )
         if normalized.get_command() == "model":
             # SoWork returns literal model brackets escaped as Markdown. Pass
@@ -241,25 +267,25 @@ class SoWorkAdapter(BasePlatformAdapter):
             # rewrite a conversation's cached prompt or old text-only replies.
             normalized.channel_context = (
                 "[SoWork gateway transport: current capabilities]\n"
-                "Native file attachments are enabled in this DM. To send a local file, "
+                "Native file attachments are enabled in this conversation. To send a local file, "
                 "include MEDIA:/absolute/path/to/file in your final response, replacing "
                 "the example path with the real file path. The gateway uploads the file "
-                "with the app's identity into this same DM; no MCP upload tool or public link is needed. "
+                "with the app's identity into this same conversation; no MCP upload tool or public link is needed. "
                 f"File size must be between 10 and {self.settings.max_attachment_bytes} bytes. "
                 "Earlier text-only descriptions of this bridge are outdated."
             )
         if proactive.enabled(self.config, self.settings) and not normalized.is_command():
             normalized.channel_context = (normalized.channel_context or "") + (
-                "\nNative Hermes cron delivery is enabled for this exact private DM. "
+                "\nNative Hermes cron delivery is enabled for explicitly configured SoWork conversations. "
                 "Use the normal cronjob tool for reminders and scheduled results, with deliver='origin' "
-                "(the default when created here), or deliver='sowork' for the pinned home DM. "
+                "(the default when created here), or deliver='sowork' for the configured home conversation. "
                 "Put the result and any MEDIA paths in the job's final response; the scheduler delivers them. "
-                "Other SoWork recipients and groups remain disabled."
+                "Unconfigured recipients remain disabled."
             )
         if self.settings.threads_enabled and not normalized.is_command():
             normalized.channel_context = (normalized.channel_context or "") + (
                 "\nReplies and files stay in the current SoWork thread when this message belongs to one. "
-                "Each thread has its own Hermes conversation, separate from the main DM and other threads."
+                "Each thread has its own Hermes conversation, separate from its parent conversation and other threads."
             )
         return normalized
 
@@ -277,7 +303,7 @@ class SoWorkAdapter(BasePlatformAdapter):
                 self.store.finish(raw["data"]["message"]["id"], "rejected")
                 continue
             event = self.normalize(raw)
-            if self._is_sender_authorized(event.source.user_id, "dm", event.source.chat_id) is not True:
+            if not routing.target_authorized(self, event.source.chat_id, event.source.user_id):
                 self.store.finish(event.message_id, "rejected")
                 continue
             if not self.store.claim(event.message_id):
@@ -288,7 +314,7 @@ class SoWorkAdapter(BasePlatformAdapter):
                 # Controls bypass file downloads as well as both native busy guards.
                 if event.get_command() == "stop":
                     await self._cancel_admissions(self._event_session_key(event))
-                token = _turn.set(Turn(event.message_id, thread_id=event.source.thread_id))
+                token = _turn.set(self._event_turn(event))
                 try:
                     await threads.hydrate(self, event)
                     if reaction_command(event.text):
@@ -321,7 +347,7 @@ class SoWorkAdapter(BasePlatformAdapter):
             self.store.finish(message_id, "cancelled")
 
     async def _admit_event(self, event):
-        token = _turn.set(Turn(event.message_id, thread_id=event.source.thread_id))
+        token = _turn.set(self._event_turn(event))
         try:
             # Hydrate media BEFORE native pending-event merging, while the SSE receiver
             # stays free to receive /stop and approvals during a slow download.
@@ -355,14 +381,15 @@ class SoWorkAdapter(BasePlatformAdapter):
 
     async def on_processing_start(self, event):
         # Queued follow-ups may be scheduled from the previous task's context.
-        _turn.set(Turn(event.message_id, thread_id=event.source.thread_id))
+        _turn.set(self._event_turn(event))
         if not self._authorized_turn(event.source.chat_id):
             return
         if not getattr(event, "_sowork_thread_ready", False):
             await threads.hydrate(self, event)
         if self.settings.reactions_enabled or self.settings.progress_enabled or self.settings.preview_enabled:
             self.store.begin_visual(event.message_id)
-            feedback = Feedback(self, event.message_id, thread_id=event.source.thread_id)
+            feedback = Feedback(self, event.message_id, thread_id=event.source.thread_id,
+                                chat_id=event.source.chat_id, user_id=event.source.user_id)
             self._feedback[event.message_id] = feedback
             feedback.task = asyncio.create_task(feedback.start())
         if self.settings.media_enabled and not getattr(event, "_sowork_media_ready", False):
@@ -414,7 +441,8 @@ class SoWorkAdapter(BasePlatformAdapter):
                         await asyncio.sleep(.05)
                     if not self._running:
                         return
-                    if self._is_sender_authorized(self.settings.allowed_user_id, "dm", self.settings.channel_id) is not True:
+                    if not all(routing.target_authorized(self, route.channel_id, user)
+                               for route in self.settings.conversations for user in route.allow_from):
                         raise SoWorkError(403, "gateway_acl_denied")
                     await self._recover_visuals()
                     await self._recover_outbox()
@@ -423,6 +451,7 @@ class SoWorkAdapter(BasePlatformAdapter):
                 self.store.check_retention()
                 if recheck_binding:
                     self._thread_dm_verified = False
+                    self._conversations_verified = False
                     await self._verify_binding()
                     recheck_binding = False
                 while True:
@@ -472,16 +501,25 @@ class SoWorkAdapter(BasePlatformAdapter):
     async def _deliver_row(self, row):
         if row["status"] == "sent":
             return json.loads(row["receipt"])
-        if row["channel_id"] != self.settings.channel_id:
+        if not routing.target_authorized(self, row["channel_id"]):
             raise SoWorkError(403, "outbox_destination_mismatch")
         if row["turn_id"].startswith("proactive_") and not proactive.enabled(self.config, self.settings):
             raise SoWorkError(403, "proactive_delivery_disabled")
         if time.time() - row["created"] >= 3600:
             raise SoWorkError(409, "outbox_reconciliation_required")
-        if self._is_sender_authorized(self.settings.allowed_user_id, "dm", row["channel_id"]) is not True:
+        inbound = self.store.db.execute("SELECT payload FROM inbox WHERE message_id=?", (row["turn_id"],)).fetchone()
+        if inbound:
+            original = json.loads(inbound[0])
+            message = original["data"]["message"]
+            if (message["channel"]["id"] != row["channel_id"]
+                    or not routing.target_authorized(self, row["channel_id"], message["sender"]["id"])):
+                raise SoWorkError(403, "outbox_origin_mismatch")
+        elif self.settings.channels and not row["turn_id"].startswith("proactive_"):
             raise SoWorkError(403, "gateway_acl_denied")
         body = json.loads(row["body"])
-        if body.get("parentId") and not threads.known(self, body["parentId"]):
+        if inbound and threads.root_id(original) != body.get("parentId"):
+            raise SoWorkError(403, "outbox_thread_origin_mismatch")
+        if body.get("parentId") and not threads.known(self, body["parentId"], row["channel_id"]):
             raise SoWorkError(403, "thread_destination_unverified")
         receipt = await self.client.send(row["channel_id"], body, row["idempotency_key"])
         if (not receipt.get("id") or receipt.get("channel", {}).get("id") != row["channel_id"]
@@ -510,15 +548,21 @@ class SoWorkAdapter(BasePlatformAdapter):
                 continue  # Expiring UI is never a reason to block conversation recovery.
             self.store.forget_visual(row["turn_id"])
 
+    @staticmethod
+    def _event_turn(event):
+        return Turn(event.message_id, thread_id=event.source.thread_id,
+                    chat_id=event.source.chat_id, user_id=event.source.user_id)
+
     def _authorized_turn(self, chat_id):
         turn = _turn.get()
         return bool(self.store and self.client and turn and turn.active
-                    and chat_id == self.settings.channel_id
-                    and self._is_sender_authorized(self.settings.allowed_user_id, "dm", chat_id) is True)
+                    and chat_id == turn.chat_id
+                    and routing.target_authorized(self, chat_id, turn.user_id))
 
     def supports_draft_streaming(self, chat_type=None, metadata=None, chat_id=None):
         turn = _turn.get()
-        return bool(self.settings.preview_enabled and chat_type in (None, "", "dm")
+        route = self.settings.conversation(chat_id)
+        return bool(self.settings.preview_enabled and route and chat_type in (None, "", route.chat_type)
                     and self._authorized_turn(chat_id)
                     and (metadata or {}).get("thread_id", turn.thread_id) == turn.thread_id)
 
@@ -528,7 +572,7 @@ class SoWorkAdapter(BasePlatformAdapter):
         return sys.maxsize if self.settings.preview_enabled else None
 
     async def send_draft(self, chat_id, draft_id, content, metadata=None):
-        if not self.supports_draft_streaming("dm", metadata, chat_id):
+        if not self.supports_draft_streaming(None, metadata, chat_id):
             return SendResult(False, error="Preview destination is not authorized", error_kind="forbidden")
         turn = _turn.get()
         feedback = self._feedback.get(turn.message_id)
@@ -588,13 +632,13 @@ class SoWorkAdapter(BasePlatformAdapter):
                     raise SoWorkError(400, "empty_proactive_delivery")
                 async with proactive.lease(self.store, identity):
                     chunks = self.truncate_message(content, self.MAX_MESSAGE_LENGTH)
-                    return await self._deliver_bodies(identity, "text", chat_id, [{"text": text} for text in chunks], parent_id=threads.destination(self, metadata))
+                    return await self._deliver_bodies(identity, "text", chat_id, [{"text": text} for text in chunks], parent_id=threads.destination(self, metadata, chat_id))
             except (SoWorkError, ValueError) as error:
                 return SendResult(False, error=error.code if isinstance(error, SoWorkError) else "proactive_payload_changed",
                                   error_kind="forbidden", retryable=False)
         if not self._authorized_turn(chat_id):
             return SendResult(False, error="No authorized inbound turn for this DM", error_kind="forbidden")
-        if self._is_sender_authorized(self.settings.allowed_user_id, "dm", chat_id) is not True:
+        if not routing.target_authorized(self, chat_id, turn.user_id):
             return SendResult(False, error="Gateway ACL denied delivery", error_kind="forbidden")
         if not content:
             return SendResult(False, error="Empty text response", error_kind="bad_format")
@@ -644,7 +688,7 @@ class SoWorkAdapter(BasePlatformAdapter):
             if identity:
                 sequence = "file_" + hashlib.sha256(safe.encode()).hexdigest()
                 async with proactive.lease(self.store, identity):
-                    return await self._deliver_file_data(identity, sequence, chat_id, name, mime, data, caption, parent_id=threads.destination(self, metadata))
+                    return await self._deliver_file_data(identity, sequence, chat_id, name, mime, data, caption, parent_id=threads.destination(self, metadata, chat_id))
             return await self._send_file_data(chat_id, name, mime, data, caption)
         except (SoWorkError, OSError, ValueError) as error:
             code = error.code if isinstance(error, SoWorkError) else "attachment_read_failed"

@@ -23,7 +23,7 @@ def public_name(value, pattern):
     return value if isinstance(value, str) and pattern.fullmatch(value) and not value.startswith("op://") else None
 
 
-def route(model, *, kind, thread_id=None, override=None):
+def route(model, *, kind, thread_id=None, override=None, channel_id=None):
     base = dict(model) if isinstance(model, dict) else {"default": model}
     override = override or {}
     provider = public_name(override.get("provider") or base.get("provider"), PROVIDER)
@@ -33,6 +33,7 @@ def route(model, *, kind, thread_id=None, override=None):
     scheme = (endpoint.lower().split(":", 1)[0] if isinstance(endpoint, str)
               and endpoint.lower().startswith(("acp://", "acp+tcp://")) else "")
     return {"kind": kind, "thread_id": thread_id, "model": name, "provider": provider,
+            **({"channel_id": channel_id} if channel_id is not None else {}),
             "acp_scheme": scheme if scheme in ("acp", "acp+tcp") else None,
             "model_streaming_disabled": str(base.get("streaming", "true")).strip().lower() in ("false", "0", "no", "off")}
 
@@ -55,7 +56,7 @@ def session_routes(home, settings, model):
                 CASE WHEN json_valid(entry_json) THEN json_extract(entry_json,'$.model_override.base_url') END
                 FROM gateway_routing WHERE scope=? AND instr(session_key,?)>0
                 ORDER BY session_key LIMIT ?""",
-                (str(home / "sessions"), ":sowork:dm:" + settings.channel_id, MAX_ROUTES + 1)).fetchall()
+                (str(home / "sessions"), ":sowork:" if settings.channels else ":sowork:dm:" + settings.channel_id, MAX_ROUTES + 1)).fetchall()
     except (AdminError, sqlite3.Error, OSError, ValueError):
         return [], ["preview_session_routes_unavailable"]
     if len(rows) > MAX_ROUTES:
@@ -63,15 +64,17 @@ def session_routes(home, settings, model):
     result, issues = [], []
     for key, platform, channel, user, thread, name, provider, endpoint in rows:
         # A different DM sharing an ID prefix is not this binding's conversation.
-        if channel != settings.channel_id and channel is not None:
+        conversation = settings.conversation(channel)
+        if conversation is None and channel is not None:
             continue
-        if (platform != "sowork" or channel != settings.channel_id or user != settings.allowed_user_id
+        if (platform != "sowork" or conversation is None or user not in conversation.allow_from
                 or (thread is not None and not public_name(thread, IDENTIFIER))):
             issues.append("preview_session_binding_unconfirmed")
             continue
         if thread and not settings.threads_enabled:
             continue
-        result.append(route(model, kind="thread" if thread else "dm", thread_id=thread,
+        result.append(route(model, kind="thread" if thread else conversation.chat_type, thread_id=thread,
+            channel_id=channel if settings.channels else None,
             override={"model": name, "provider": provider, "base_url": endpoint}))
     return result, sorted(set(issues))
 
