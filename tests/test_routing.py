@@ -9,7 +9,7 @@ import httpx
 import pytest
 
 from sowork import routing, threads, admin, proactive
-from sowork.client import CHANNEL_EVENT, DM_EVENT, THREAD_EVENT, SoWorkError
+from sowork.client import CHANNEL_EVENT, DM_EVENT, THREAD_EVENT, MENTION_EVENT, SoWorkError
 from sowork.config import Settings
 from test_contracts import adapter, credentials, event, identity, no_sleep  # noqa: F401
 from test_media_feedback import MediaAPI
@@ -249,6 +249,23 @@ def test_mention_flag_is_a_boolean(value):
 def test_primary_dm_cannot_be_changed_to_require_mentions():
     data = extra();data["channels"]["dm"]["require_mention"] = True
     with pytest.raises(ValueError):Settings.from_extra(data)
+
+
+async def test_mention_only_channels_need_no_all_channel_messages_grant(multi):
+    adp, api, _ = multi
+    data = extra()
+    data["channels"] = {key:value for key,value in data["channels"].items() if key in ("dm", "client-a")}
+    data["channels"]["client-a"]["require_mention"] = True
+    data["allow_from"] = data["group_allow_from"] = ["human"]
+    data["channel_prompts"].pop("client-b")
+    settings = Settings.from_extra(data)
+    assert routing.event_types(settings) == [DM_EVENT, MENTION_EVENT, THREAD_EVENT]
+    assert "events.subscribe:" + CHANNEL_EVENT not in routing.scopes(settings)
+    api.events = routing.event_types(settings)
+    api.scope_override = list(routing.scopes(settings))
+    report = await admin.verify_connection(adp.client, settings)
+    assert report["connection"] == "verified"
+    assert all(r.method in ("GET", "POST") for r in api.requests)
 
 
 @pytest.mark.parametrize("fault", ["missing", "archived", "type_changed", "dm_peer_changed"])

@@ -3,6 +3,7 @@
 ## 0.14.0 — opt-in mention requirements
 
 - Require an explicit app mention per configured channel or group DM, including thread replies. Existing routes and one-to-one DMs keep their behavior.
+- Use the existing `me.chat_mentioned` event grant for mention-required channels; broader all-channel-message access is only required for routes without the mention gate.
 - Ignore plain names, mentions of other apps, broadcasts, code, images and quoted mentions before model or media work. Mentioned native controls such as `@Newton /stop` keep their normal routing and confirmations.
 - Include the mention policy in diagnostics and in the active configuration binding.
 

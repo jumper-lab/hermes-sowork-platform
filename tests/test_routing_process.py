@@ -11,7 +11,7 @@ from uuid import uuid4
 import pytest
 
 from agent.onboarding import BUSY_INPUT_FLAG
-from e2e_support import SoWorkServer, CHANNEL_EVENT
+from e2e_support import SoWorkServer, CHANNEL_EVENT, MENTION_EVENT
 from test_routing import extra
 from tests.e2e.core.platforms._helpers import Director, GatewayUnderTest
 from tests.fakes.fake_llm_provider import FakeLLMServer, Text
@@ -28,6 +28,7 @@ def rig():
         shutil.copyfile(Path(__file__).with_name("e2e_sitecustomize.py"), shim / "sitecustomize.py")
         api = SoWorkServer().start()
         api.subscriptions["sub"]["events"].append(CHANNEL_EVENT)
+        api.subscriptions["sub"]["events"].append(MENTION_EVENT)
         api.channels = [{"id": "client-a", "type": "private"}, {"id": "client-b", "type": "public"}]
         api.conversations = [{"id": "dm", "type": "direct", "participants": [{"id": "human"}]},
             {"id": "dm2", "type": "direct", "participants": [{"id": "colleague"}]},
@@ -158,7 +159,11 @@ def test_real_mentions_filter_channel_and_thread_input_and_keep_dm_controls(rig)
         api.message("[in:missing-mention]", channel="client-a", kind="private", root=target)
         api.message("[@Other](user:other-app) [in:wrong-mention]", channel="client-a", kind="private", root=target)
         api.message("[@Newton](user:app) [in:unauthorized-mention]", sender="intruder", channel="client-a", kind="private", root=target)
-    send(rig, "mention-barrier", root=root)
+    first = send(rig, "mention-barrier", root=root)
+    duplicate = copy.deepcopy(first);duplicate["id"] = str(uuid4());duplicate["type"] = MENTION_EVENT
+    api.replay(duplicate)
+    send(rig, "mention-dedupe-barrier", root=root)
+    assert rig.director.turns["mention-barrier"] == 1
     assert all(rig.director.turns.get(token, 0) == 0 for token in ("missing-mention", "wrong-mention", "unauthorized-mention"))
     send(rig, "dm-still-normal", channel="dm", kind="dm")
     rig.director.script("mention-stop", Text("mention-stop-preview "*800, chunk_chars=30, delay_per_chunk=.2))

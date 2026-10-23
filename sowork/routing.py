@@ -3,7 +3,7 @@ import re
 
 from markdown_it import MarkdownIt
 
-from .client import DM_EVENT, THREAD_EVENT, CHANNEL_EVENT, SoWorkError
+from .client import DM_EVENT, THREAD_EVENT, CHANNEL_EVENT, MENTION_EVENT, SoWorkError
 from .config import Settings
 
 _MARKDOWN = MarkdownIt("commonmark", {"html": False})
@@ -47,8 +47,10 @@ def event_types(settings):
     result = []
     if any(c.type in ("dm", "group_dm") for c in settings.conversations):
         result.append(DM_EVENT)
-    if any(c.type in ("public", "private") for c in settings.conversations):
+    if any(c.type in ("public", "private") and not c.require_mention for c in settings.conversations):
         result.append(CHANNEL_EVENT)
+    if any(c.type in ("public", "private") and c.require_mention for c in settings.conversations):
+        result.append(MENTION_EVENT)
     if settings.threads_enabled:
         result.append(THREAD_EVENT)
     return result

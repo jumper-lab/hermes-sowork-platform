@@ -19,6 +19,7 @@ BASE_URL = "https://api.sowork.com/public"
 DM_EVENT = "chat.direct_message_created"
 THREAD_EVENT = "chat.thread_reply_created"
 CHANNEL_EVENT = "chat.channel_message_created"
+MENTION_EVENT = "me.chat_mentioned"
 REQUIRED_SCOPES = {"chat.dm", "chat.write", "events.subscribe:" + DM_EVENT}
 
 
