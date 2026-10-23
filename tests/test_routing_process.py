@@ -8,6 +8,7 @@ from uuid import uuid4
 
 import pytest
 
+from agent.onboarding import BUSY_INPUT_FLAG
 from e2e_support import SoWorkServer, CHANNEL_EVENT
 from test_routing import extra
 from tests.e2e.core.platforms._helpers import Director, GatewayUnderTest
@@ -33,6 +34,9 @@ def rig():
         settings["channels"]["client-a"]["allow_from"].append("colleague")
         director = Director();llm = FakeLLMServer(director);llm.start()
         config = {"plugins": {"enabled": ["sowork-platform"]},
+            # Native busy-input onboarding persists this flag on the first overlap.
+            # Start past that hint so byte equality still detects plugin config writes.
+            "onboarding": {"seen": {BUSY_INPUT_FLAG: True}},
             "platforms": {"sowork": {"enabled": True, "extra": settings},
                           "slack": {"enabled": False}, "telegram": {"enabled": False}},
             "streaming": {"enabled": True, "transport": "auto", "min_interval": .05, "buffer_threshold": 1},
@@ -130,3 +134,13 @@ def test_real_restart_keeps_routes_and_deduplication(rig):
     send(rig, "route-after-restart", channel="client-b", user="colleague", kind="public")
     assert rig.director.turns["route-before-restart"] == 1
     assert sum("reply to route-before-restart" in m["body"].get("text", "") for m in rig.api.visible()) == 1
+
+
+def test_real_busy_followup_keeps_routes_and_config(rig):
+    root = str(uuid4())
+    rig.api.parents[root] = {"id": root, "text": "busy root", "channel": {"id": "client-a", "type": "private"}, "sender": {"id": "human"}}
+    rig.director.script("busy-route", Text("busy-route-preview "*800, chunk_chars=30, delay_per_chunk=.2))
+    rig.api.message("[in:busy-route]", channel="client-a", kind="private", root=root)
+    wait_until(lambda: any(p.get("parentId")==root and "busy-route-preview" in p.get("text", "") for p in rig.api.visuals()),
+               "active turn before busy followup", timeout=45, on_timeout=rig.gw.tail)
+    send(rig, "busy-followup", root=root)
