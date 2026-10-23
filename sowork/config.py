@@ -44,6 +44,7 @@ class Conversation:
     channel_id: str
     type: str
     allow_from: tuple[str, ...]
+    require_mention: bool = False
 
     @property
     def chat_type(self):
@@ -112,13 +113,17 @@ class Settings:
                 raise ValueError("SoWork channels must be an explicit nonempty mapping (at most 100)")
             for channel, rule in raw.items():
                 identifiers([channel])
-                if (not isinstance(rule, dict) or set(rule) != {"type", "allow_from"}
+                if (not isinstance(rule, dict) or not {"type", "allow_from"}.issubset(rule)
+                        or set(rule) - {"type", "allow_from", "require_mention"}
                         or rule["type"] not in ("dm", "group_dm", "public", "private")):
                     raise ValueError("Each SoWork channel needs a type and an explicit allow_from list")
                 users = identifiers(rule["allow_from"])
                 if rule["type"] == "dm" and len(users) != 1:
                     raise ValueError("A one-to-one DM must bind exactly one human")
-                channels.append(Conversation(channel, rule["type"], users))
+                require_mention = rule.get("require_mention", False)
+                if type(require_mention) is not bool or (rule["type"] == "dm" and require_mention):
+                    raise ValueError("require_mention must be a boolean for a channel or group DM")
+                channels.append(Conversation(channel, rule["type"], users, require_mention))
         legacy = values["allowed_user_id"], values["channel_id"]
         if any(legacy) or not channels:
             identifiers(list(legacy))

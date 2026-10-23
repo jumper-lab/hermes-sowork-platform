@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.14.0 — opt-in mention requirements
+
+- Require an explicit app mention per configured channel or group DM, including thread replies. Existing routes and one-to-one DMs keep their behavior.
+- Ignore plain names, mentions of other apps, broadcasts, code, images and quoted mentions before model or media work. Mentioned native controls such as `@Newton /stop` keep their normal routing and confirmations.
+- Include the mention policy in diagnostics and in the active configuration binding.
+
 ## 0.13.0 — explicit conversation routes and channel prompts
 
 - Add opt-in routes for multiple 1:1 DMs, group DMs and public/private channels, each with explicit authorized users. Keep the existing single-human/DM format and its access unchanged. Validate app membership and the exact subscription/scopes without joining channels, modifying grants or enrolling anyone.

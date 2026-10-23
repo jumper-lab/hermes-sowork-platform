@@ -80,6 +80,7 @@ channels:
   "CLIENT_A_CHANNEL_ID":
     type: private
     allow_from: ["USER_A_ID", "USER_B_ID"]
+    require_mention: true
   "CLIENT_B_CHANNEL_ID":
     type: public
     allow_from: ["USER_B_ID"]
@@ -94,6 +95,8 @@ channel_prompts:
 ```
 
 `allow_from` must equal the union of all configured conversation users. Hermes' separate `group_allow_from` must equal the union of users configured for channels/group DMs. Both lists and the per-conversation list must permit the sender. Other workspace members do not gain access merely by joining a channel. A participant list is an invocation allowlist; permanent replies are visible to the conversation's normal audience.
+
+Set `require_mention: true` per channel/group DM to accept input only when its text explicitly mentions this app, including thread replies. Select the app in SoWork's mention picker: a real mention arrives as `[@Newton](user:APP_USER_ID)`. Plain `@Newton`, another app's mention, broadcasts, code, images and blockquotes do not trigger a response. An allowed sender is still required. Mentioned commands such as `@Newton /stop` use Hermes' normal controls and confirmations; without the mention, commands are ignored in that route too. The setting defaults to `false`; one-to-one DMs keep their existing behavior. Scheduled deliveries from an already-authorized turn keep their configured destination.
 
 If the legacy `allowed_user_id` / `channel_id` fields are retained, include that original 1:1 DM with its original peer in `channels` too. For a channel-only installation, omit both legacy fields. A native `home_channel`, when configured, must identify one of the explicit conversations. Other platforms and profile settings do not need to change.
 

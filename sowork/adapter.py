@@ -232,6 +232,8 @@ class SoWorkAdapter(BasePlatformAdapter):
             return "unsupported_content"
         if not isinstance(message.get("text", ""), str) or not (message.get("text", "").strip() or attachments) or not message.get("id"):
             return "malformed"
+        if route.require_mention and not routing.mentioned(message.get("text", ""), self.settings.app_user_id):
+            return "not_mentioned"
         stamp = event.get("createdAt")
         if not isinstance(stamp, (int, float)) or stamp > time.time() + 60:
             return "malformed"
@@ -250,7 +252,8 @@ class SoWorkAdapter(BasePlatformAdapter):
             thread_id=threads.root_id(event),
         )
         normalized = MessageEvent(
-            text=message.get("text", ""), source=source, user_id=source.user_id,
+            text=(routing.command_text(message.get("text", ""), self.settings.app_user_id)
+                  if route.require_mention else message.get("text", "")), source=source, user_id=source.user_id,
             raw_message=message,
             message_type=(MessageType.DOCUMENT if message.get("attachments") else MessageType.TEXT),
             message_id=message["id"], timestamp=datetime.fromtimestamp(event["createdAt"], timezone.utc),
@@ -514,6 +517,9 @@ class SoWorkAdapter(BasePlatformAdapter):
             if (message["channel"]["id"] != row["channel_id"]
                     or not routing.target_authorized(self, row["channel_id"], message["sender"]["id"])):
                 raise SoWorkError(403, "outbox_origin_mismatch")
+            route = self.settings.conversation(row["channel_id"])
+            if route.require_mention and not routing.mentioned(message.get("text", ""), self.settings.app_user_id):
+                raise SoWorkError(403, "outbox_origin_not_mentioned")
         elif self.settings.channels and not row["turn_id"].startswith("proactive_"):
             raise SoWorkError(403, "gateway_acl_denied")
         body = json.loads(row["body"])

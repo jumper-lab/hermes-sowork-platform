@@ -1,7 +1,9 @@
 """Real installed plugin + Hermes gateway + loopback SSE/HTTP/model, across channels/users."""
 from pathlib import Path
 import copy
+import hashlib
 import shutil
+import sqlite3
 import tempfile
 from types import SimpleNamespace
 from uuid import uuid4
@@ -32,6 +34,7 @@ def rig():
             {"id": "team-dm", "type": "group", "participants": [{"id": "human"}, {"id": "colleague"}]}]
         settings = extra()
         settings["channels"]["client-a"]["allow_from"].append("colleague")
+        settings["channels"]["client-a"]["require_mention"] = True
         director = Director();llm = FakeLLMServer(director);llm.start()
         config = {"plugins": {"enabled": ["sowork-platform"]},
             # Native busy-input onboarding persists this flag on the first overlap.
@@ -57,7 +60,8 @@ def rig():
 
 
 def send(rig, token, *, channel="client-a", user="human", kind="private", root=None):
-    event = rig.api.message("[in:"+token+"]", channel=channel, sender=user, kind=kind, root=root)
+    text = ("[@Newton](user:app) " if channel == "client-a" else "") + "[in:"+token+"]"
+    event = rig.api.message(text, channel=channel, sender=user, kind=kind, root=root)
     wait_until(lambda: any("reply to "+token in m["body"].get("text", "") for m in rig.api.visible()),
                "reply "+token, timeout=45, on_timeout=rig.gw.tail)
     result = next(m for m in rig.api.visible() if "reply to "+token in m["body"].get("text", ""))
@@ -140,7 +144,35 @@ def test_real_busy_followup_keeps_routes_and_config(rig):
     root = str(uuid4())
     rig.api.parents[root] = {"id": root, "text": "busy root", "channel": {"id": "client-a", "type": "private"}, "sender": {"id": "human"}}
     rig.director.script("busy-route", Text("busy-route-preview "*800, chunk_chars=30, delay_per_chunk=.2))
-    rig.api.message("[in:busy-route]", channel="client-a", kind="private", root=root)
+    rig.api.message("[@Newton](user:app) [in:busy-route]", channel="client-a", kind="private", root=root)
     wait_until(lambda: any(p.get("parentId")==root and "busy-route-preview" in p.get("text", "") for p in rig.api.visuals()),
                "active turn before busy followup", timeout=45, on_timeout=rig.gw.tail)
     send(rig, "busy-followup", root=root)
+
+
+def test_real_mentions_filter_channel_and_thread_input_and_keep_dm_controls(rig):
+    api = rig.api
+    root = str(uuid4())
+    api.parents[root] = {"id": root, "text": "mention root", "channel": {"id": "client-a", "type": "private"}, "sender": {"id": "human"}}
+    for target in (None, root):
+        api.message("[in:missing-mention]", channel="client-a", kind="private", root=target)
+        api.message("[@Other](user:other-app) [in:wrong-mention]", channel="client-a", kind="private", root=target)
+        api.message("[@Newton](user:app) [in:unauthorized-mention]", sender="intruder", channel="client-a", kind="private", root=target)
+    send(rig, "mention-barrier", root=root)
+    assert all(rig.director.turns.get(token, 0) == 0 for token in ("missing-mention", "wrong-mention", "unauthorized-mention"))
+    send(rig, "dm-still-normal", channel="dm", kind="dm")
+    rig.director.script("mention-stop", Text("mention-stop-preview "*800, chunk_chars=30, delay_per_chunk=.2))
+    api.message("[@Newton](user:app) [in:mention-stop]", channel="client-a", kind="private", root=root)
+    wait_until(lambda: any(p.get("parentId")==root and "mention-stop-preview" in p.get("text", "") for p in api.visuals()),
+               "mentioned thread preview", timeout=45, on_timeout=rig.gw.tail)
+    unmentioned_stop = api.message("/stop", channel="client-a", kind="private", root=root)
+    db = rig.gw.hermes_home/"sowork"/(hashlib.sha256(b"install:sub").hexdigest()[:24]+".sqlite3")
+    def ignored_stop():
+        with sqlite3.connect(db) as conn:
+            return conn.execute("SELECT verdict FROM events WHERE event_id=?", (unmentioned_stop["id"],)).fetchone() == ("not_mentioned",)
+    wait_until(ignored_stop, "unmentioned stop rejected", timeout=15, on_timeout=rig.gw.tail)
+    assert any(p.get("parentId")==root for p in api.visuals())
+    api.message("[@Newton](user:app) /stop", channel="client-a", kind="private", root=root)
+    wait_until(lambda: any("stopped" in m["body"].get("text", "").lower() and m["body"].get("parentId")==root
+                          for m in api.visible()), "mentioned stop", timeout=30, on_timeout=rig.gw.tail)
+    wait_until(lambda: not any(p.get("parentId")==root for p in api.visuals()), "mentioned preview removed", timeout=15, on_timeout=rig.gw.tail)
