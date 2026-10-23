@@ -1,14 +1,42 @@
 """Explicit conversation routes. No channel discovery changes membership or access."""
-from .client import DM_EVENT, THREAD_EVENT, CHANNEL_EVENT, SoWorkError
+import re
+
+from markdown_it import MarkdownIt
+
+from .client import DM_EVENT, THREAD_EVENT, CHANNEL_EVENT, MENTION_EVENT, SoWorkError
 from .config import Settings
+
+_MARKDOWN = MarkdownIt("commonmark", {"html": False})
+
+
+def mentioned(text, app_user_id):
+    """A real app-targeted Markdown link outside code, images and quotations."""
+    quoted = 0
+    for token in _MARKDOWN.parse(text):
+        if token.type == "blockquote_open":
+            quoted += 1
+        elif token.type == "blockquote_close":
+            quoted -= 1
+        elif token.type == "inline" and not quoted:
+            if any(child.type == "link_open" and child.attrGet("href") == "user:" + app_user_id
+                   for child in token.children or ()):
+                return True
+    return False
+
+
+def command_text(text, app_user_id):
+    """Let the normal native command parser see `@Bot /stop` as `/stop`."""
+    pattern = r"^\s*\[(?:\\.|[^\]\\\r\n])*\]\(user:" + re.escape(app_user_id) + r"\)\s*"
+    stripped = re.sub(pattern, "", text, count=1)
+    return stripped if stripped.startswith("/") else text
 
 
 def active(config, settings):
     try:
         current = Settings.from_extra(config.extra)
         return (config.enabled is True and settings.allowlist_matches(config.extra)
-                and [(c.channel_id, c.type, c.allow_from) for c in current.conversations]
-                == [(c.channel_id, c.type, c.allow_from) for c in settings.conversations]
+                and [(c.channel_id, c.type, c.allow_from, c.require_mention) for c in current.conversations]
+                == [(c.channel_id, c.type, c.allow_from, c.require_mention) for c in settings.conversations]
                 and (current.workspace_id, current.app_user_id, current.subscription_id)
                 == (settings.workspace_id, settings.app_user_id, settings.subscription_id))
     except (TypeError, ValueError, KeyError):
@@ -19,8 +47,10 @@ def event_types(settings):
     result = []
     if any(c.type in ("dm", "group_dm") for c in settings.conversations):
         result.append(DM_EVENT)
-    if any(c.type in ("public", "private") for c in settings.conversations):
+    if any(c.type in ("public", "private") and not c.require_mention for c in settings.conversations):
         result.append(CHANNEL_EVENT)
+    if any(c.type in ("public", "private") and c.require_mention for c in settings.conversations):
+        result.append(MENTION_EVENT)
     if settings.threads_enabled:
         result.append(THREAD_EVENT)
     return result

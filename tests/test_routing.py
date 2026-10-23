@@ -9,7 +9,7 @@ import httpx
 import pytest
 
 from sowork import routing, threads, admin, proactive
-from sowork.client import CHANNEL_EVENT, DM_EVENT, THREAD_EVENT, SoWorkError
+from sowork.client import CHANNEL_EVENT, DM_EVENT, THREAD_EVENT, MENTION_EVENT, SoWorkError
 from sowork.config import Settings
 from test_contracts import adapter, credentials, event, identity, no_sleep  # noqa: F401
 from test_media_feedback import MediaAPI
@@ -169,6 +169,105 @@ def test_other_channels_or_senders_never_enter_agent(multi, case):
     assert adp.verdict(raw) != "accepted"
 
 
+def require_mention(adp, channel="client-a"):
+    adp.config.extra["channels"][channel]["require_mention"] = True
+    adp.settings = type(adp.settings).from_extra(adp.config.extra)
+
+
+@pytest.mark.parametrize("text,accepted", [
+    ("[@Newton](user:app) performance?", True),
+    ("performance? [@Renamed Bot](user:app)", True),
+    ("**[@Newton](user:app)** performance?", True),
+    ("@Newton performance?", False),
+    ("[@Newton](user:another-app) performance?", False),
+    ("[@channel](broadcast:channel) performance?", False),
+    ("`[@Newton](user:app)`", False),
+    ("```\n[@Newton](user:app)\n```", False),
+    ("> [@Newton](user:app)\n\nquoted only", False),
+    ("\\[@Newton](user:app)", False),
+    ("![@Newton](user:app)", False),
+    ("[@Newton](https://example.com/user:app)", False),
+])
+@pytest.mark.parametrize("thread", [False, True])
+def test_opt_in_mention_gate_checks_real_target_in_channels_and_threads(multi, text, accepted, thread):
+    adp, _, _ = multi
+    require_mention(adp)
+    raw = inbound(root=str(uuid4()) if thread else None)
+    raw["data"]["message"]["text"] = text
+    assert adp.verdict(raw) == ("accepted" if accepted else "not_mentioned")
+
+
+def test_mention_never_bypasses_sender_acl_and_other_routes_stay_unchanged(multi):
+    adp, _, _ = multi
+    require_mention(adp)
+    raw = inbound(user="colleague")
+    raw["data"]["message"]["text"] = "[@Newton](user:app) performance?"
+    assert adp.verdict(raw) == "unbound_sender"
+    assert adp.verdict(inbound("dm", "human")) == "accepted"
+    assert adp.verdict(inbound("client-b", "colleague")) == "accepted"
+    adp.config.extra["channels"]["client-a"]["require_mention"] = False
+    assert not routing.active(adp.config, adp.settings)
+
+
+def test_mentioned_prefix_preserves_native_commands_without_mutating_wire_event(multi):
+    adp, _, _ = multi
+    require_mention(adp)
+    raw = inbound()
+    raw["data"]["message"]["text"] = "[@Newton](user:app) /stop"
+    original = copy.deepcopy(raw)
+    normalized = adp.normalize(raw)
+    assert normalized.text == "/stop" and normalized.get_command() == "stop"
+    assert raw == original
+
+
+@pytest.mark.parametrize("text", ["[@Newton](user:app)", "[@Newton](user:app) performance?"])
+def test_mention_normalization_keeps_ordinary_user_text(multi, text):
+    adp, _, _ = multi
+    require_mention(adp)
+    raw = inbound();raw["data"]["message"]["text"] = text
+    assert adp.verdict(raw) == "accepted"
+    assert adp.normalize(raw).text == text
+
+
+async def test_unmentioned_input_does_not_enter_inbox_or_call_api(multi):
+    adp, api, _ = multi
+    require_mention(adp)
+    async def handler(_):
+        pytest.fail("unmentioned input reached the agent")
+    adp.set_message_handler(handler)
+    await adp.ingest("mention-filter-cursor", inbound())
+    assert not adp.store.summary()["inbox"]
+    assert not api.requests
+
+
+@pytest.mark.parametrize("value", ["true", 1, None])
+def test_mention_flag_is_a_boolean(value):
+    data = extra();data["channels"]["client-a"]["require_mention"] = value
+    with pytest.raises(ValueError):Settings.from_extra(data)
+
+
+def test_primary_dm_cannot_be_changed_to_require_mentions():
+    data = extra();data["channels"]["dm"]["require_mention"] = True
+    with pytest.raises(ValueError):Settings.from_extra(data)
+
+
+async def test_mention_only_channels_need_no_all_channel_messages_grant(multi):
+    adp, api, _ = multi
+    data = extra()
+    data["channels"] = {key:value for key,value in data["channels"].items() if key in ("dm", "client-a")}
+    data["channels"]["client-a"]["require_mention"] = True
+    data["allow_from"] = data["group_allow_from"] = ["human"]
+    data["channel_prompts"].pop("client-b")
+    settings = Settings.from_extra(data)
+    assert routing.event_types(settings) == [DM_EVENT, MENTION_EVENT, THREAD_EVENT]
+    assert "events.subscribe:" + CHANNEL_EVENT not in routing.scopes(settings)
+    api.events = routing.event_types(settings)
+    api.scope_override = list(routing.scopes(settings))
+    report = await admin.verify_connection(adp.client, settings)
+    assert report["connection"] == "verified"
+    assert all(r.method in ("GET", "POST") for r in api.requests)
+
+
 @pytest.mark.parametrize("fault", ["missing", "archived", "type_changed", "dm_peer_changed"])
 async def test_startup_verifies_app_membership_without_creating_anything(multi, fault):
     adp, api, _ = multi
@@ -228,6 +327,17 @@ async def test_durable_outbox_rechecks_original_author_and_channel(multi):
     assert not api.requests
     adp.config.extra["channels"]["client-a"]["allow_from"] = ["colleague"]
     assert not routing.target_authorized(adp, "client-a", "human")
+
+
+async def test_new_mention_requirement_blocks_an_old_unmentioned_pending_reply(multi):
+    adp, api, _ = multi
+    raw = inbound()
+    adp.store.ingest("one", raw, "accepted")
+    row = adp.store.prepare_response(raw["data"]["message"]["id"], 0, "client-a", ["pending reply"])[0]
+    require_mention(adp)
+    with pytest.raises(Exception, match="outbox_origin_not_mentioned"):
+        await adp._deliver_row(row)
+    assert not api.requests
 
 
 async def test_same_thread_id_cannot_cross_conversations_and_cron_keys_are_distinct(multi):

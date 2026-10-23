@@ -80,6 +80,7 @@ channels:
   "CLIENT_A_CHANNEL_ID":
     type: private
     allow_from: ["USER_A_ID", "USER_B_ID"]
+    require_mention: true
   "CLIENT_B_CHANNEL_ID":
     type: public
     allow_from: ["USER_B_ID"]
@@ -95,9 +96,11 @@ channel_prompts:
 
 `allow_from` must equal the union of all configured conversation users. Hermes' separate `group_allow_from` must equal the union of users configured for channels/group DMs. Both lists and the per-conversation list must permit the sender. Other workspace members do not gain access merely by joining a channel. A participant list is an invocation allowlist; permanent replies are visible to the conversation's normal audience.
 
+Set `require_mention: true` per channel/group DM to accept input only when its text explicitly mentions this app, including thread replies. Select the app in SoWork's mention picker: a real mention arrives as `[@Newton](user:APP_USER_ID)`. Plain `@Newton`, another app's mention, broadcasts, code, images and blockquotes do not trigger a response. An allowed sender is still required. Mentioned commands such as `@Newton /stop` use Hermes' normal controls and confirmations; without the mention, commands are ignored in that route too. The setting defaults to `false`; one-to-one DMs keep their existing behavior. Scheduled deliveries from an already-authorized turn keep their configured destination.
+
 If the legacy `allowed_user_id` / `channel_id` fields are retained, include that original 1:1 DM with its original peer in `channels` too. For a channel-only installation, omit both legacy fields. A native `home_channel`, when configured, must identify one of the explicit conversations. Other platforms and profile settings do not need to change.
 
-The app must already belong to every configured conversation. `check-connection` verifies membership through documented, bounded GET listings; it never joins, creates or modifies a conversation. Each app installation/profile still owns one exclusive inbox subscription. Its event list must match the configured routes: `chat.direct_message_created` for DMs/group DMs, `chat.channel_message_created` for public/private channels, plus `chat.thread_reply_created` when threads are enabled. Corresponding event scopes, `chat.write`, `chat.dm` for DMs and `chat.history` for channels/threads must already be granted. Expanding a configuration requires an operator to review the app grant and that profile's subscription first; the plugin never widens them automatically. The guided setup intentionally starts with one confirmed human/DM.
+The app must already belong to every configured conversation. `check-connection` verifies membership through documented, bounded GET listings; it never joins, creates or modifies a conversation. Each app installation/profile still owns one exclusive inbox subscription. Its event list must match the configured routes: `chat.direct_message_created` for DMs/group DMs, `me.chat_mentioned` for mention-required public/private channels, `chat.channel_message_created` for other public/private channels, plus `chat.thread_reply_created` when threads are enabled. A mention-only installation does not need the all-channel-messages event scope. Corresponding event scopes, `chat.write`, `chat.dm` for DMs and `chat.history` for channels/threads must already be granted. Expanding a configuration requires an operator to review the app grant and that profile's subscription first; the plugin never widens them automatically. The guided setup intentionally starts with one confirmed human/DM.
 
 Prompts come from operator configuration, using Hermes' `resolve_channel_prompt` → `MessageEvent.channel_prompt` path. A thread inherits its conversation's prompt. Message text, channel descriptions and client names never become system instructions. Follow native Hermes session/reset behavior when changing prompts; the plugin does not rebuild cached prompts, edit old history or change tools. The native `channel_overrides` mechanism remains owned by Hermes.
 

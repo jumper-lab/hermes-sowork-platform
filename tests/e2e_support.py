@@ -10,6 +10,7 @@ from uuid import uuid4
 DM_EVENT = "chat.direct_message_created"
 THREAD_EVENT = "chat.thread_reply_created"
 CHANNEL_EVENT = "chat.channel_message_created"
+MENTION_EVENT = "me.chat_mentioned"
 
 
 class SoWorkServer:
@@ -60,7 +61,7 @@ class SoWorkServer:
         if root:
             msg["parentId"] = root
             data.update(threadRootId=root, channel=msg["channel"])
-        event = {"id": str(uuid4()), "type": THREAD_EVENT if root else DM_EVENT if wire_type == "dm" else CHANNEL_EVENT,
+        event = {"id": str(uuid4()), "type": THREAD_EVENT if root else DM_EVENT if wire_type == "dm" else MENTION_EVENT if "(user:app)" in text else CHANNEL_EVENT,
                  "officeId": "workspace", "installationId": "install", "createdAt": time.time(), "data": data}
         self.replay(event)
         return event
@@ -100,7 +101,7 @@ class SoWorkServer:
                 failure = failures.pop(0) if failures else None
             if failure:
                 return reply({"error": {"code": failure[1]}}, failure[0])
-        if path == "/v1/app":return reply({"installation": {"id": "install", "state": "active", "consentedScopes": ["chat.dm", "chat.write", "chat.history", "events.subscribe:"+DM_EVENT, "events.subscribe:"+THREAD_EVENT, "events.subscribe:"+CHANNEL_EVENT], **({"ownerUserId": self.owner_user_id} if self.owner_user_id else {})}, "group": {"id": "workspace"}, "appUser": {"id": "app"}})
+        if path == "/v1/app":return reply({"installation": {"id": "install", "state": "active", "consentedScopes": ["chat.dm", "chat.write", "chat.history", "events.subscribe:"+DM_EVENT, "events.subscribe:"+THREAD_EVENT, "events.subscribe:"+CHANNEL_EVENT, "events.subscribe:"+MENTION_EVENT], **({"ownerUserId": self.owner_user_id} if self.owner_user_id else {})}, "group": {"id": "workspace"}, "appUser": {"id": "app"}})
         if path == "/v1/subscriptions":
             if h.command == "POST":
                 with self.lock:

@@ -263,6 +263,8 @@ class Store:
                             (parent["id"], parent["channel"]["id"], json.dumps(parent, separators=(",", ":"))))
 
     def begin_visual(self, turn_id):
+        if not isinstance(turn_id, str) or not turn_id:
+            raise ValueError("A visual requires a message ID")
         with self.db:
             self.db.execute("INSERT OR IGNORE INTO visuals VALUES (?,NULL,?)", (turn_id, time.time()))
 
@@ -272,7 +274,7 @@ class Store:
 
     def forget_visual(self, turn_id):
         with self.db:
-            self.db.execute("DELETE FROM visuals WHERE turn_id=?", (turn_id,))
+            self.db.execute("DELETE FROM visuals WHERE turn_id IS ?", (turn_id,))
 
     def unfinished_visuals(self):
         return [dict(row) for row in self.db.execute("SELECT * FROM visuals")]

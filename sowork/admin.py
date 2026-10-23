@@ -74,6 +74,7 @@ def config_summary(config, settings):
                     "subscription_id": settings.subscription_id},
         "channels": [{"channel_id": route.channel_id, "type": route.type,
                       "allowed_user_ids": list(route.allow_from),
+                      "require_mention": route.require_mention,
                       "has_prompt": bool(config["platforms"]["sowork"]["extra"].get("channel_prompts", {}).get(route.channel_id))}
                      for route in settings.conversations],
         "features": {name: getattr(settings, name + "_enabled") for name in FEATURES},

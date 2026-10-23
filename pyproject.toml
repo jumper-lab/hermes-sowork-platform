@@ -1,9 +1,9 @@
 [project]
 name = "hermes-sowork-platform"
-version = "0.13.0"
+version = "0.14.0"
 description = "SoWork conversations with explicit user/channel routes, contextual prompts, previews and media for Hermes"
 requires-python = ">=3.11,<3.15"
-dependencies = ["httpx>=0.28.1,<0.29"]
+dependencies = ["httpx>=0.28.1,<0.29", "markdown-it-py>=3.0,<5"]
 license = {text = "MIT"}
 readme = "README.md"
 

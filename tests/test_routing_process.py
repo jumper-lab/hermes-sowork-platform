@@ -1,15 +1,18 @@
 """Real installed plugin + Hermes gateway + loopback SSE/HTTP/model, across channels/users."""
 from pathlib import Path
 import copy
+import hashlib
 import shutil
+import sqlite3
 import tempfile
+import time
 from types import SimpleNamespace
 from uuid import uuid4
 
 import pytest
 
 from agent.onboarding import BUSY_INPUT_FLAG
-from e2e_support import SoWorkServer, CHANNEL_EVENT
+from e2e_support import SoWorkServer, CHANNEL_EVENT, MENTION_EVENT
 from test_routing import extra
 from tests.e2e.core.platforms._helpers import Director, GatewayUnderTest
 from tests.fakes.fake_llm_provider import FakeLLMServer, Text
@@ -26,12 +29,14 @@ def rig():
         shutil.copyfile(Path(__file__).with_name("e2e_sitecustomize.py"), shim / "sitecustomize.py")
         api = SoWorkServer().start()
         api.subscriptions["sub"]["events"].append(CHANNEL_EVENT)
+        api.subscriptions["sub"]["events"].append(MENTION_EVENT)
         api.channels = [{"id": "client-a", "type": "private"}, {"id": "client-b", "type": "public"}]
         api.conversations = [{"id": "dm", "type": "direct", "participants": [{"id": "human"}]},
             {"id": "dm2", "type": "direct", "participants": [{"id": "colleague"}]},
             {"id": "team-dm", "type": "group", "participants": [{"id": "human"}, {"id": "colleague"}]}]
         settings = extra()
         settings["channels"]["client-a"]["allow_from"].append("colleague")
+        settings["channels"]["client-a"]["require_mention"] = True
         director = Director();llm = FakeLLMServer(director);llm.start()
         config = {"plugins": {"enabled": ["sowork-platform"]},
             # Native busy-input onboarding persists this flag on the first overlap.
@@ -57,7 +62,8 @@ def rig():
 
 
 def send(rig, token, *, channel="client-a", user="human", kind="private", root=None):
-    event = rig.api.message("[in:"+token+"]", channel=channel, sender=user, kind=kind, root=root)
+    text = ("[@Newton](user:app) " if channel == "client-a" else "") + "[in:"+token+"]"
+    event = rig.api.message(text, channel=channel, sender=user, kind=kind, root=root)
     wait_until(lambda: any("reply to "+token in m["body"].get("text", "") for m in rig.api.visible()),
                "reply "+token, timeout=45, on_timeout=rig.gw.tail)
     result = next(m for m in rig.api.visible() if "reply to "+token in m["body"].get("text", ""))
@@ -128,9 +134,16 @@ def test_real_private_preview_and_stop_do_not_interrupt_another_channel(rig):
 def test_real_restart_keeps_routes_and_deduplication(rig):
     first = send(rig, "route-before-restart")
     old = len(rig.api.poll_cursors)
-    rig.gw.stop();rig.api.replay(first);rig.gw.start()
+    rig.gw.stop()
+    db = rig.gw.hermes_home/"sowork"/(hashlib.sha256(b"install:sub").hexdigest()[:24]+".sqlite3")
+    with sqlite3.connect(db) as conn:
+        cursor = conn.execute("SELECT value FROM meta WHERE key='cursor'").fetchone()[0]
+        conn.execute("INSERT INTO visuals VALUES (NULL,NULL,?)", (time.time(),))
+    rig.api.replay(first);rig.gw.start()
     wait_until(lambda: len(rig.api.poll_cursors)>old, "route catch-up", timeout=30, on_timeout=rig.gw.tail)
-    assert rig.api.poll_cursors[-1] is not None
+    assert rig.api.poll_cursors[old] == cursor
+    with sqlite3.connect(db) as conn:
+        assert conn.execute("SELECT count(*) FROM visuals WHERE turn_id IS NULL").fetchone()[0] == 0
     send(rig, "route-after-restart", channel="client-b", user="colleague", kind="public")
     assert rig.director.turns["route-before-restart"] == 1
     assert sum("reply to route-before-restart" in m["body"].get("text", "") for m in rig.api.visible()) == 1
@@ -140,7 +153,39 @@ def test_real_busy_followup_keeps_routes_and_config(rig):
     root = str(uuid4())
     rig.api.parents[root] = {"id": root, "text": "busy root", "channel": {"id": "client-a", "type": "private"}, "sender": {"id": "human"}}
     rig.director.script("busy-route", Text("busy-route-preview "*800, chunk_chars=30, delay_per_chunk=.2))
-    rig.api.message("[in:busy-route]", channel="client-a", kind="private", root=root)
+    rig.api.message("[@Newton](user:app) [in:busy-route]", channel="client-a", kind="private", root=root)
     wait_until(lambda: any(p.get("parentId")==root and "busy-route-preview" in p.get("text", "") for p in rig.api.visuals()),
                "active turn before busy followup", timeout=45, on_timeout=rig.gw.tail)
     send(rig, "busy-followup", root=root)
+
+
+def test_real_mentions_filter_channel_and_thread_input_and_keep_dm_controls(rig):
+    api = rig.api
+    root = str(uuid4())
+    api.parents[root] = {"id": root, "text": "mention root", "channel": {"id": "client-a", "type": "private"}, "sender": {"id": "human"}}
+    for target in (None, root):
+        api.message("[in:missing-mention]", channel="client-a", kind="private", root=target)
+        api.message("[@Other](user:other-app) [in:wrong-mention]", channel="client-a", kind="private", root=target)
+        api.message("[@Newton](user:app) [in:unauthorized-mention]", sender="intruder", channel="client-a", kind="private", root=target)
+    first = send(rig, "mention-barrier", root=root)
+    duplicate = copy.deepcopy(first);duplicate["id"] = str(uuid4());duplicate["type"] = MENTION_EVENT
+    api.replay(duplicate)
+    send(rig, "mention-dedupe-barrier", root=root)
+    assert rig.director.turns["mention-barrier"] == 1
+    assert all(rig.director.turns.get(token, 0) == 0 for token in ("missing-mention", "wrong-mention", "unauthorized-mention"))
+    send(rig, "dm-still-normal", channel="dm", kind="dm")
+    rig.director.script("mention-stop", Text("mention-stop-preview "*800, chunk_chars=30, delay_per_chunk=.2))
+    api.message("[@Newton](user:app) [in:mention-stop]", channel="client-a", kind="private", root=root)
+    wait_until(lambda: any(p.get("parentId")==root and "mention-stop-preview" in p.get("text", "") for p in api.visuals()),
+               "mentioned thread preview", timeout=45, on_timeout=rig.gw.tail)
+    unmentioned_stop = api.message("/stop", channel="client-a", kind="private", root=root)
+    db = rig.gw.hermes_home/"sowork"/(hashlib.sha256(b"install:sub").hexdigest()[:24]+".sqlite3")
+    def ignored_stop():
+        with sqlite3.connect(db) as conn:
+            return conn.execute("SELECT verdict FROM events WHERE event_id=?", (unmentioned_stop["id"],)).fetchone() == ("not_mentioned",)
+    wait_until(ignored_stop, "unmentioned stop rejected", timeout=15, on_timeout=rig.gw.tail)
+    assert any(p.get("parentId")==root for p in api.visuals())
+    api.message("[@Newton](user:app) /stop", channel="client-a", kind="private", root=root)
+    wait_until(lambda: any("stopped" in m["body"].get("text", "").lower() and m["body"].get("parentId")==root
+                          for m in api.visible()), "mentioned stop", timeout=30, on_timeout=rig.gw.tail)
+    wait_until(lambda: not any(p.get("parentId")==root for p in api.visuals()), "mentioned preview removed", timeout=15, on_timeout=rig.gw.tail)

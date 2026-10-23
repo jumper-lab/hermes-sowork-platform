@@ -232,6 +232,8 @@ class SoWorkAdapter(BasePlatformAdapter):
             return "unsupported_content"
         if not isinstance(message.get("text", ""), str) or not (message.get("text", "").strip() or attachments) or not message.get("id"):
             return "malformed"
+        if route.require_mention and not routing.mentioned(message.get("text", ""), self.settings.app_user_id):
+            return "not_mentioned"
         stamp = event.get("createdAt")
         if not isinstance(stamp, (int, float)) or stamp > time.time() + 60:
             return "malformed"
@@ -250,7 +252,8 @@ class SoWorkAdapter(BasePlatformAdapter):
             thread_id=threads.root_id(event),
         )
         normalized = MessageEvent(
-            text=message.get("text", ""), source=source, user_id=source.user_id,
+            text=(routing.command_text(message.get("text", ""), self.settings.app_user_id)
+                  if route.require_mention else message.get("text", "")), source=source, user_id=source.user_id,
             raw_message=message,
             message_type=(MessageType.DOCUMENT if message.get("attachments") else MessageType.TEXT),
             message_id=message["id"], timestamp=datetime.fromtimestamp(event["createdAt"], timezone.utc),
@@ -386,7 +389,8 @@ class SoWorkAdapter(BasePlatformAdapter):
             return
         if not getattr(event, "_sowork_thread_ready", False):
             await threads.hydrate(self, event)
-        if self.settings.reactions_enabled or self.settings.progress_enabled or self.settings.preview_enabled:
+        if (isinstance(event.message_id, str) and event.message_id
+                and (self.settings.reactions_enabled or self.settings.progress_enabled or self.settings.preview_enabled)):
             self.store.begin_visual(event.message_id)
             feedback = Feedback(self, event.message_id, thread_id=event.source.thread_id,
                                 chat_id=event.source.chat_id, user_id=event.source.user_id)
@@ -514,6 +518,9 @@ class SoWorkAdapter(BasePlatformAdapter):
             if (message["channel"]["id"] != row["channel_id"]
                     or not routing.target_authorized(self, row["channel_id"], message["sender"]["id"])):
                 raise SoWorkError(403, "outbox_origin_mismatch")
+            route = self.settings.conversation(row["channel_id"])
+            if route.require_mention and not routing.mentioned(message.get("text", ""), self.settings.app_user_id):
+                raise SoWorkError(403, "outbox_origin_not_mentioned")
         elif self.settings.channels and not row["turn_id"].startswith("proactive_"):
             raise SoWorkError(403, "gateway_acl_denied")
         body = json.loads(row["body"])
@@ -541,7 +548,8 @@ class SoWorkAdapter(BasePlatformAdapter):
     async def _recover_visuals(self):
         for row in self.store.unfinished_visuals():
             try:
-                await asyncio.wait_for(self.client.reaction(row["turn_id"], "eyes", remove=True), 1.4)
+                if isinstance(row["turn_id"], str) and row["turn_id"]:
+                    await asyncio.wait_for(self.client.reaction(row["turn_id"], "eyes", remove=True), 1.4)
                 if row["message_id"]:
                     await asyncio.wait_for(self.client.delete_progress(row["message_id"]), 1.4)
             except (SoWorkError, TimeoutError, OSError):
