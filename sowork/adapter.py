@@ -389,7 +389,8 @@ class SoWorkAdapter(BasePlatformAdapter):
             return
         if not getattr(event, "_sowork_thread_ready", False):
             await threads.hydrate(self, event)
-        if self.settings.reactions_enabled or self.settings.progress_enabled or self.settings.preview_enabled:
+        if (isinstance(event.message_id, str) and event.message_id
+                and (self.settings.reactions_enabled or self.settings.progress_enabled or self.settings.preview_enabled)):
             self.store.begin_visual(event.message_id)
             feedback = Feedback(self, event.message_id, thread_id=event.source.thread_id,
                                 chat_id=event.source.chat_id, user_id=event.source.user_id)
@@ -547,7 +548,8 @@ class SoWorkAdapter(BasePlatformAdapter):
     async def _recover_visuals(self):
         for row in self.store.unfinished_visuals():
             try:
-                await asyncio.wait_for(self.client.reaction(row["turn_id"], "eyes", remove=True), 1.4)
+                if isinstance(row["turn_id"], str) and row["turn_id"]:
+                    await asyncio.wait_for(self.client.reaction(row["turn_id"], "eyes", remove=True), 1.4)
                 if row["message_id"]:
                     await asyncio.wait_for(self.client.delete_progress(row["message_id"]), 1.4)
             except (SoWorkError, TimeoutError, OSError):

@@ -6,6 +6,7 @@
 - Use the existing `me.chat_mentioned` event grant for mention-required channels; broader all-channel-message access is only required for routes without the mention gate.
 - Ignore plain names, mentions of other apps, broadcasts, code, images and quoted mentions before model or media work. Mentioned native controls such as `@Newton /stop` keep their normal routing and confirmations.
 - Include the mention policy in diagnostics and in the active configuration binding.
+- Recover legacy activity markers without a message ID without stopping the receiver or changing its cursor; internal turns no longer create such markers.
 
 ## 0.13.0 — explicit conversation routes and channel prompts
 

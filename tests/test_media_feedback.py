@@ -100,6 +100,34 @@ async def wait_complete(adp):
     pytest.fail("Native background processing did not finish")
 
 
+async def test_recover_legacy_null_visual_preserves_delivery_history(rich):
+    adp, api, _ = rich
+    adp.store.ingest("keep-cursor", event(), "unbound_sender")
+    before = adp.store.summary()
+    cursor = adp.store.cursor
+    with adp.store.db:
+        adp.store.db.execute("INSERT INTO visuals VALUES (NULL,NULL,?)", (time.time(),))
+    await adp._recover_visuals()
+    assert not adp.store.unfinished_visuals()
+    assert adp.store.cursor == cursor and adp.store.summary() == before
+    assert not api.requests
+
+
+async def test_internal_turn_without_message_id_creates_no_visual(rich):
+    adp, api, _ = rich
+    inbound = adp.normalize(event())
+    inbound.message_id = None
+    await adp.on_processing_start(inbound)
+    assert not adp.store.unfinished_visuals() and not adp._feedback
+    assert not api.requests
+
+
+@pytest.mark.parametrize("turn", [None, "", 42])
+def test_visual_journal_requires_a_message_id(rich, turn):
+    adp, _, _ = rich
+    with pytest.raises(ValueError):adp.store.begin_visual(turn)
+
+
 @pytest.mark.parametrize("text", ["", "Read this attachment"])
 async def test_real_native_media_event_and_same_session(rich, text):
     adp, api, runner = rich

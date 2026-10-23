@@ -5,6 +5,7 @@ import hashlib
 import shutil
 import sqlite3
 import tempfile
+import time
 from types import SimpleNamespace
 from uuid import uuid4
 
@@ -133,9 +134,16 @@ def test_real_private_preview_and_stop_do_not_interrupt_another_channel(rig):
 def test_real_restart_keeps_routes_and_deduplication(rig):
     first = send(rig, "route-before-restart")
     old = len(rig.api.poll_cursors)
-    rig.gw.stop();rig.api.replay(first);rig.gw.start()
+    rig.gw.stop()
+    db = rig.gw.hermes_home/"sowork"/(hashlib.sha256(b"install:sub").hexdigest()[:24]+".sqlite3")
+    with sqlite3.connect(db) as conn:
+        cursor = conn.execute("SELECT value FROM meta WHERE key='cursor'").fetchone()[0]
+        conn.execute("INSERT INTO visuals VALUES (NULL,NULL,?)", (time.time(),))
+    rig.api.replay(first);rig.gw.start()
     wait_until(lambda: len(rig.api.poll_cursors)>old, "route catch-up", timeout=30, on_timeout=rig.gw.tail)
-    assert rig.api.poll_cursors[-1] is not None
+    assert rig.api.poll_cursors[old] == cursor
+    with sqlite3.connect(db) as conn:
+        assert conn.execute("SELECT count(*) FROM visuals WHERE turn_id IS NULL").fetchone()[0] == 0
     send(rig, "route-after-restart", channel="client-b", user="colleague", kind="public")
     assert rig.director.turns["route-before-restart"] == 1
     assert sum("reply to route-before-restart" in m["body"].get("text", "") for m in rig.api.visible()) == 1
