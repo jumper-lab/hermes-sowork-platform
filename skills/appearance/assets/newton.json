@@ -1,0 +1,15 @@
+{
+  "bodyType": "characterA",
+  "slots": {
+    "body": "characterA_body_v1+typeE",
+    "eyebrows": "characterA_eyebrows_eyebrows1+black",
+    "eyes": "characterA_eyes_eyes1+brown",
+    "hair": "characterA_hair_nathan+black",
+    "mouth": "characterA_mouth_mouth1+typeE",
+    "pants": "characterA_pants_standardJeans+black",
+    "shirt": "characterA_shirt_sweatShirt+black",
+    "shoes": "characterA_shoes_maleDressShoes+black",
+    "headAccessory": "characterA_headAccessory_basicGlasses+black"
+  },
+  "version": 5
+}

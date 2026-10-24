@@ -15,6 +15,14 @@ An independent Hermes gateway plugin for **explicitly configured users and conve
 
 Audio is delivered as an attachment, not a native voice-note UI. Interactive buttons, permanent message editing/deletion and general reaction events are outside this release. The bounded reaction experiment remains limited to the original single-DM configuration. Preview availability also depends on Hermes and the selected provider; unsupported routes fall back to a final response. No provider/core patch is installed by this plugin.
 
+## Character and app profile preparation
+
+Use the bundled `sowork-platform:appearance` skill to prepare a character from a
+portrait or interview. [Appearance workflow](docs/APPEARANCE.md) includes the
+credential-free catalog/validation/preview commands and corrected Sabrina/Newton
+JSON presets. Inspect actual garment previews before calling a draft a visual
+match. The helpers generate local artifacts; app/NPC changes remain separate.
+
 ## Requirements
 
 - Hermes **0.21.5 or newer**, subject to the gateway contract check (`check-runtime`). See [compatibility](docs/COMPATIBILITY.md) for exact tested commits.

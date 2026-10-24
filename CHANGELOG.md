@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.15.0 — reusable character appearance preparation
+
+- Bundle an opt-in appearance skill with a portrait/interview workflow, corrected Sabrina/Newton v5 presets and app-profile setup guidance.
+- Add anonymous public-catalog download, offline ID/color-base validation and actual piece-preview download commands. Keep appearance preparation independent of profile secrets and live app/NPC writes.
+- Require visual cut/sleeve review in the workflow: catalog-valid names alone previously confused shorts with trousers and a sleeveless vest with a layered shirt.
+- Include skill resources in the source export and register the namespace when the host supports plugin skills, preserving older host platform/CLI discovery.
+
 ## 0.14.0 — opt-in mention requirements
 
 - Require an explicit app mention per configured channel or group DM, including thread replies. Existing routes and one-to-one DMs keep their behavior.

@@ -6,6 +6,7 @@ recursive-include docs *.json
 recursive-include .github *.yml
 recursive-include examples *.yaml
 recursive-include scripts *.py
+recursive-include skills *.md *.json
 prune activation
 prune evidence
 exclude ADMINISTRATION.md API-REVALIDATION-20261018.md PARITY-PLAN.md SETUP.md WORKLOG.md

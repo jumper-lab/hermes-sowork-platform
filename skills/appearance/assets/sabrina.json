@@ -1,0 +1,14 @@
+{
+  "bodyType": "characterA",
+  "slots": {
+    "body": "characterA_body_v1+typeB",
+    "eyebrows": "characterA_eyebrows_eyebrows1+blonde",
+    "eyes": "characterA_eyes_eyes1+green",
+    "hair": "characterA_hair_ophelia2+blonde",
+    "mouth": "characterA_mouth_mouth1+typeB",
+    "pants": "characterA_pants_standardJeans+black",
+    "shirt": "characterA_shirt_tuxedoShirt+black",
+    "shoes": "characterA_shoes_maleDressShoes+black"
+  },
+  "version": 5
+}
