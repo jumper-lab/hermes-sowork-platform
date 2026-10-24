@@ -1,0 +1,82 @@
+{
+  "schema_version": "1.0.0",
+  "skill_name": "appearance",
+  "dataset_role": "public-development",
+  "holdout_policy": "No external holdout claim; cases derive from observed setup failures.",
+  "evals": [
+    {
+      "id": "portrait-long-trousers",
+      "split": "regression",
+      "category": "task",
+      "should_trigger": true,
+      "prompt": "Make a SoWork character with short dark hair, brown eyes, rectangular black glasses and full-length black trousers. Give me JSON to paste.",
+      "expected_behavior": "Inspect actual clothing previews, verify a full-length cut and disclose visual approximations.",
+      "assertions": [
+        "Preview inspected, not just downloaded.",
+        "Pants visibly cover the legs.",
+        "No authenticated write."
+      ]
+    },
+    {
+      "id": "portrait-layers-and-correction",
+      "split": "regression",
+      "category": "task",
+      "should_trigger": true,
+      "prompt": "Keep Sabrina's green eyes. Change her outfit to a black buttoned long-sleeve shirt under a padded vest, long trousers and black shoes.",
+      "expected_behavior": "Preserve the eye correction, inspect sleeves/trousers and disclose one-slot limits.",
+      "assertions": [
+        "Eyes remain green.",
+        "Sleeve and trouser previews inspected.",
+        "Draft validation is distinguished from an API write."
+      ]
+    },
+    {
+      "id": "transformed-color",
+      "split": "dev",
+      "category": "task",
+      "should_trigger": true,
+      "prompt": "Validate ophelia2 blonde hair and black standardJeans. Exact color IDs are missing from the art file.",
+      "expected_behavior": "Resolve catalog baseVariation while preserving the chosen color.",
+      "assertions": [
+        "Known transforms accepted.",
+        "Unknown variants rejected."
+      ]
+    },
+    {
+      "id": "unavailable-catalog",
+      "split": "dev",
+      "category": "task",
+      "should_trigger": true,
+      "prompt": "Create a new SoWork outfit while the public catalog is unavailable. I have no saved config.",
+      "expected_behavior": "Explain missing evidence and ask for an exported config/manual selection.",
+      "assertions": [
+        "No invented IDs.",
+        "No secret or broader permission request."
+      ]
+    },
+    {
+      "id": "transport-near-miss",
+      "split": "regression",
+      "category": "coexistence",
+      "should_trigger": false,
+      "prompt": "The SoWork gateway stopped receiving DMs. Diagnose reconnect and cursor handling.",
+      "expected_behavior": "Use transport diagnostics, not an appearance interview.",
+      "assertions": [
+        "No appearance mutation."
+      ],
+      "conflicting_skill": "Hermes transport diagnostics (operator workflow)"
+    },
+    {
+      "id": "portrait-generation-near-miss",
+      "split": "regression",
+      "category": "coexistence",
+      "should_trigger": false,
+      "prompt": "Generate a new realistic portrait of Sabrina in a different room.",
+      "expected_behavior": "Use image generation, not SoWork JSON.",
+      "assertions": [
+        "No forced SoWork customization."
+      ],
+      "conflicting_skill": "Host image-generation workflow"
+    }
+  ]
+}

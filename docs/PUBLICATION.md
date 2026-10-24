@@ -12,6 +12,32 @@ Implemented admission changes:
 - MIT license, operational disclosure, installation/migration documentation, synthetic tests and pinned CI.
 - Optional preview reflects native core/provider support; no automatic core/provider patch.
 
+## 0.15 appearance workflow validation
+
+The full native suite passed 394 tests across 16 files with Python 3.14.7 against
+pinned Hermes revision `e868508f5d341bc8dcaa827eb1d61c45ad14ddca`. Tests include
+credential-free startup, offline catalog validation, bounded public downloads,
+optional native skill registration and clean-export resource preservation.
+Native admission of the clean export passed all 14 checks, including security
+scan `safe` and no core override. The previously disclosed private-import
+warning remains; the appearance helper adds no Hermes imports.
+
+On 2026-10-23, the helper fetched the two official public frontend catalogs and
+validated both bundled presets. The selected garment, hairstyle and glasses
+PNGs were opened for visual review. This verifies the pieces and their cuts,
+not the final assembled in-app appearance or account entitlement. No credentials,
+app/NPC writes, production profiles or gateway commands were used.
+
+The portable skill checker passed 66 checks; the independent Jumper audit passed
+68 static checks, a new optional-slot edit case, four negative checks and an
+offline public-image replay. The independent audit found no concrete P0–P2 code
+bug. Its skill-efficacy score is capped at 6.0/10 with low confidence because a
+paired behavioral baseline, protected model holdout and coexistence trials have
+not been run. The bundled skill therefore remains a `yellow` candidate; these
+results do not certify model generalization or authenticated administration.
+GitHub CI separately verifies the PR commit on Linux/macOS and all three pinned
+Hermes revisions.
+
 ## 0.11 robustness validation
 
 Python 3.14.7, in a fresh Hermes PM environment with dev/test groups and the native

@@ -2,6 +2,7 @@
 from dataclasses import fields
 import importlib.util
 from functools import partial
+from pathlib import Path
 
 from .config import Credentials, Settings
 
@@ -34,6 +35,10 @@ def register(ctx):
     from .cli import setup_parser, dispatch
     ctx.register_cli_command(name="sowork", help="SoWork configuration and diagnostics",
                              setup_fn=setup_parser, handler_fn=dispatch)
+    # Older admitted Hermes versions can still use the file/CLI workflow.
+    register_skill = getattr(ctx, "register_skill", None)
+    if callable(register_skill):
+        register_skill("appearance", Path(__file__).resolve().parents[1] / "skills/appearance/SKILL.md")
     optional = {}
     supported = {field.name for field in fields(PlatformEntry)}
     if "trusted_inbound" in supported:

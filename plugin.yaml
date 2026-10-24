@@ -1,7 +1,7 @@
 name: sowork-platform
 label: SoWork
 kind: platform
-version: 0.14.0
+version: 0.15.0
 description: SoWork gateway with explicit users and conversations, channel prompts, media, threads and private previews.
 author: Bruno / Jumper Studio
 license: MIT

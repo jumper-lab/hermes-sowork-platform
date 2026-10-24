@@ -7,8 +7,10 @@ import shutil
 
 ROOT_FILES = ('__init__.py', 'plugin.yaml', 'pyproject.toml', 'soworkctl.py',
               'README.md', 'LICENSE', 'CHANGELOG.md', 'SECURITY.md', '.gitignore', 'MANIFEST.in')
-DOCS = ('COMPATIBILITY.md', 'MIGRATION.md', 'PUBLICATION.md', 'VALIDATION.json', 'HERMES-API-PROPOSAL.md')
+DOCS = ('COMPATIBILITY.md', 'MIGRATION.md', 'PUBLICATION.md', 'VALIDATION.json', 'HERMES-API-PROPOSAL.md', 'APPEARANCE.md')
 SCRIPTS = ('verify.py', 'export_public.py')
+APPEARANCE_SKILL = ('SKILL.md', 'references/app-profile.md', 'assets/sabrina.json',
+                    'assets/newton.json', 'evals/BASELINE.md', 'evals/evals.json')
 
 
 def export(root, output):
@@ -20,6 +22,7 @@ def export(root, output):
     files += sorted((root / 'tests').glob('*.py'))
     files += [root / 'docs' / name for name in DOCS]
     files += [root / 'scripts' / name for name in SCRIPTS]
+    files += [root / 'skills/appearance' / name for name in APPEARANCE_SKILL]
     files += [root / 'examples/config.yaml', root / 'examples/channels.yaml', root / '.github/workflows/ci.yml']
     if any(not p.is_file() or p.is_symlink() for p in files):
         raise ValueError('Publication source must contain regular files only')

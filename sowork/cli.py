@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 
 from .admin import AdminError, EDITABLE, check_connection, configure
+from .appearance import AppearanceError
 from .diagnostics import inspect
 
 
@@ -17,6 +18,8 @@ def setup_parser(parser):
     commands.add_parser("check-preview", help="Local core/provider streaming compatibility; no model or secrets")
     commands.add_parser("check-runtime", help="Check Hermes gateway contracts before credentials or network")
     commands.add_parser("check-connection", help="Read-only API check using the active Hermes profile")
+    from .appearance import setup_parser as setup_appearance
+    setup_appearance(commands)
     setup = commands.add_parser("setup", help="Connect this profile through native secrets and a private DM pairing code")
     setup.add_argument("--owner-id", help="Optional already-confirmed human ID; never a wildcard")
     setup.add_argument("--subscription-id", help="Explicitly reviewed exclusive subscription for recovery; otherwise setup creates its own")
@@ -32,11 +35,15 @@ def setup_parser(parser):
 
 def dispatch(args):
     try:
-        from hermes_constants import get_hermes_home
-        if args.home is not None and args.home.expanduser().is_symlink():
-            raise AdminError("profile_symlink")
-        home = (args.home or get_hermes_home()).expanduser().resolve()
-        if args.sowork_command == "setup":
+        if args.sowork_command != "appearance":
+            from hermes_constants import get_hermes_home
+            if args.home is not None and args.home.expanduser().is_symlink():
+                raise AdminError("profile_symlink")
+            home = (args.home or get_hermes_home()).expanduser().resolve()
+        if args.sowork_command == "appearance":
+            from .appearance import dispatch as prepare_appearance
+            result = prepare_appearance(args)
+        elif args.sowork_command == "setup":
             from .setup import interactive
             result = interactive(home, args)
         elif args.sowork_command == "check-runtime":
@@ -62,7 +69,7 @@ def dispatch(args):
                 for key in ("gateway", "state", "issues"):
                     result.pop(key, None)
         code = 1 if args.sowork_command in ("doctor", "check-preview", "check-runtime") and result.get("issues") else 0
-    except AdminError as error:
+    except (AdminError, AppearanceError) as error:
         result, code = {"error": str(error)}, 2
     except Exception:
         result, code = {"error": "local_operation_failed"}, 2
