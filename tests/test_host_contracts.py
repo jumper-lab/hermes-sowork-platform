@@ -42,6 +42,23 @@ def test_broken_caption_contract_is_reported(monkeypatch):
     assert "native outbound caption helpers" in runtime.missing_contracts()
 
 
+def test_shared_status_uses_only_the_attested_profile(monkeypatch, tmp_path):
+    from gateway import status
+    from sowork.diagnostics import gateway_summary
+    if not hasattr(status, "profile_platforms_from_multiplexer"):
+        pytest.skip("native shared-gateway status projection is unavailable")
+    record = {"pid":123,"platforms":{"alpha:sowork":{"state":"connected"},
+                                   "beta:sowork":{"state":"fatal"}}}
+    monkeypatch.setattr(status,"multiplexer_liveness_for_profile",lambda home:(123,record))
+    monkeypatch.setattr(status,"profile_name_for_home",lambda home:home.name)
+    monkeypatch.setattr(status,"runtime_status_heartbeat_age_s",lambda runtime:1)
+    assert gateway_summary(tmp_path/'alpha',0)['state']=='connected'
+    assert gateway_summary(tmp_path/'beta',0)['state']=='fatal'
+    assert gateway_summary(tmp_path/'unserved-platform',0)['state']=='unknown'
+    monkeypatch.setattr(status,"multiplexer_liveness_for_profile",lambda home:None)
+    assert gateway_summary(tmp_path/'alpha',0)=={'state':'unknown','fresh':False}
+
+
 @pytest.mark.parametrize("name,replacement", [("_ACTIVE_DELIVERIES", None), ("_PROCESS_ID", 1), ("_lock", None), ("get_status", lambda: None)])
 def test_changed_queue_contract_is_reported_before_startup(monkeypatch, name, replacement):
     from cron import delivery_queue
