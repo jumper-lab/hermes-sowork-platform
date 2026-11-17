@@ -14,7 +14,12 @@ MENTION_EVENT = "me.chat_mentioned"
 
 
 class SoWorkServer:
-    def __init__(self):
+    def __init__(self, *, tenant=""):
+        self.installation_id = tenant + "install"
+        self.app_user_id = tenant + "app"
+        self.subscription_id = tenant + "sub"
+        self.client_id, self.client_secret = tenant + "test-client", tenant + "test-secret"
+        self.delivery_gate = None
         self.events, self.requests, self.parents = [], [], {}
         self.deliveries, self.previews = {}, {}
         self.stream_cursors, self.poll_cursors = [], []
@@ -23,7 +28,7 @@ class SoWorkServer:
         self.generation = 0
         self.fail_after_accept = False
         self.get_failures = {}
-        self.subscriptions = {"sub": {"id": "sub", "officeId": "workspace", "events": [DM_EVENT, THREAD_EVENT], "creator": {"id": "app"}}}
+        self.subscriptions = {self.subscription_id: {"id": self.subscription_id, "officeId": "workspace", "events": [DM_EVENT, THREAD_EVENT], "creator": {"id": self.app_user_id}}}
         self.fail_subscription_after_accept = False
         self.dm_participants = [{"id": "human"}]
         self.owner_user_id = None
@@ -61,8 +66,8 @@ class SoWorkServer:
         if root:
             msg["parentId"] = root
             data.update(threadRootId=root, channel=msg["channel"])
-        event = {"id": str(uuid4()), "type": THREAD_EVENT if root else DM_EVENT if wire_type == "dm" else MENTION_EVENT if "(user:app)" in text else CHANNEL_EVENT,
-                 "officeId": "workspace", "installationId": "install", "createdAt": time.time(), "data": data}
+        event = {"id": str(uuid4()), "type": THREAD_EVENT if root else DM_EVENT if wire_type == "dm" else MENTION_EVENT if "(user:" + self.app_user_id + ")" in text else CHANNEL_EVENT,
+                 "officeId": "workspace", "installationId": self.installation_id, "createdAt": time.time(), "data": data}
         self.replay(event)
         return event
 
@@ -92,7 +97,10 @@ class SoWorkServer:
             if status == 503:h.send_header("Retry-After", "0")
             h.end_headers();h.wfile.write(payload)
         if path == "/oauth/token":
-            assert b"client_id=test-client" in content and b"installation_id=install" in content
+            form = parse_qs(content.decode())
+            assert form["client_id"] == [self.client_id]
+            assert form["client_secret"] == [self.client_secret]
+            assert form["installation_id"] == [self.installation_id]
             return reply({"access_token": "synthetic-access", "expires_in": 3600})
         if h.headers.get("Authorization") != "Bearer synthetic-access":return reply({}, 401)
         if h.command == "GET":
@@ -101,7 +109,7 @@ class SoWorkServer:
                 failure = failures.pop(0) if failures else None
             if failure:
                 return reply({"error": {"code": failure[1]}}, failure[0])
-        if path == "/v1/app":return reply({"installation": {"id": "install", "state": "active", "consentedScopes": ["chat.dm", "chat.write", "chat.history", "events.subscribe:"+DM_EVENT, "events.subscribe:"+THREAD_EVENT, "events.subscribe:"+CHANNEL_EVENT, "events.subscribe:"+MENTION_EVENT], **({"ownerUserId": self.owner_user_id} if self.owner_user_id else {})}, "group": {"id": "workspace"}, "appUser": {"id": "app"}})
+        if path == "/v1/app":return reply({"installation": {"id": self.installation_id, "state": "active", "consentedScopes": ["chat.dm", "chat.write", "chat.history", "events.subscribe:"+DM_EVENT, "events.subscribe:"+THREAD_EVENT, "events.subscribe:"+CHANNEL_EVENT, "events.subscribe:"+MENTION_EVENT], **({"ownerUserId": self.owner_user_id} if self.owner_user_id else {})}, "group": {"id": "workspace"}, "appUser": {"id": self.app_user_id}})
         if path == "/v1/subscriptions":
             if h.command == "POST":
                 with self.lock:
@@ -120,6 +128,7 @@ class SoWorkServer:
         if path == "/v1/events":
             cursor = query.get("after", [None])[0]
             with self.lock:self.poll_cursors.append(cursor)
+            assert query.get("subscriptionId", [None])[0] in self.subscriptions
             return reply({"items": self.after(cursor), "hasMore": False})
         if path == "/v1/events/stream":
             cursor = h.headers.get("Last-Event-ID")
@@ -144,9 +153,11 @@ class SoWorkServer:
             with self.lock:
                 previous = self.deliveries.get(key)
                 assert previous is None or previous["body"] == body
-                receipt = previous or {"id": str(uuid4()), "sender": {"id": "app"}, "channel": {"id": channel}, "body": body, **({"parentId": body["parentId"]} if body.get("parentId") else {})}
+                receipt = previous or {"id": str(uuid4()), "sender": {"id": self.app_user_id}, "channel": {"id": channel}, "body": body, **({"parentId": body["parentId"]} if body.get("parentId") else {})}
                 self.deliveries[key] = receipt
                 fail, self.fail_after_accept = self.fail_after_accept, False
+            if self.delivery_gate is not None:
+                assert self.delivery_gate.wait(30), "test did not release the accepted delivery"
             return reply({"error": {"code": "temporary"}} if fail else receipt, 503 if fail else 200)
         if path.startswith("/v1/chat/channels/") and path.endswith("/ephemeral-messages"):
             mid = str(uuid4())

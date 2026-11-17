@@ -15,7 +15,16 @@ modified files; this workspace tested SoWork 0.14.0 and published 0.15.0
 `jumper/production` branch (`be375ce1136`) is older than the live VPS source.
 Do not use that branch alone as the production preservation baseline.
 
-The VPS chat owns the core/Kanban port. This plugin branch owns SoWork
+The VPS chat owns the core/Kanban port. Its reviewed candidate is
+`ea55ee288ed2159e27a5f21926139b643cfde6af`, branch
+`codex/jumper-hermes-0.23.2`, based on the release above. The code-only bundle
+was imported locally without changing either production or this workspace's
+core checkout; SHA-256
+`6347414559714030ee8bf26e1b187875584520972e108c7a5b4531afad74f60c`.
+The peer reports 207 tests and 21 repository checks passing; those results do
+not replace the combined plugin/core test evidence recorded here.
+
+This plugin branch owns SoWork
 compatibility, contract tests and isolated shared-gateway validation. Reading
 the peer chat is coordination evidence, not authorization to deploy its work.
 
@@ -48,6 +57,14 @@ databases into this repository.
   Caddy, real OAuth, 1Password service accounts or callback delivery.
 - Existing OAuth failures and the failing Operador cron are independent
   operational findings. Updating the core does not prove those are resolved.
+- The historical fork also had ElevenLabs voice controls and session-scoped
+  permission-name persistence. They are not ported by the Kanban candidate.
+  Native per-profile secret **values** are not proof of equivalent per-session
+  permission **names**. Preserve this distinction when approving the migration.
+- DirectSDK's two failing study tests expect the original provider file path
+  (the new loader copies providers into scoped namespaces) and the removed
+  `ContextCompressor._truncate_tool_call_args_at` helper. Those are test-contract
+  failures, not evidence that authenticated generation or cancellation works.
 
 ## Validation boundary
 
@@ -57,3 +74,13 @@ SoWork installations in one gateway process, profile-bound credentials and
 authorization, independent cursors/outboxes, reconnect/restart and duplicate
 event/delivery handling. Record exact tested commits, test totals and remaining
 VPS checks with the final evidence. No production deployment is authorized.
+
+The shared-gateway process tests use two synthetic installations with distinct
+OAuth credentials and the same inbound message ID/channel ID. They verify
+independent conversation history, journal ownership, cursor advancement and
+outbox keys, reject foreign envelopes, and kill only their disposable child
+after server acceptance but before receipt persistence. Restart must reuse the
+saved receipt key without calling the model again or duplicating delivery.
+The native CLI status is also checked for both profiles: a served profile owns
+no status file, so the plugin projects only that profile's state from the
+live host after native ownership verification.
