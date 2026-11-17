@@ -201,7 +201,9 @@ async def test_native_plugin_writer_in_another_process_preserves_setup(rig, monk
         "try: fcntl.flock(fd,fcntl.LOCK_EX|fcntl.LOCK_NB)",
         "except BlockingIOError: blocked=True",
         "os.close(fd)",
-        f"Path({str(ready)!r}).write_text(json.dumps({{'blocked':blocked}}))",
+        f"notice=Path({str(ready.with_suffix('.tmp'))!r})",
+        "notice.write_text(json.dumps({'blocked':blocked}))",
+        f"notice.replace({str(ready)!r})",  # Publish only the complete lock verdict.
         "save_plugin_setting('other-plugin',('marker',),'after-setup')",
     ]))
     processes = []
