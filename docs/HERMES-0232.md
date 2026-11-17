@@ -1,5 +1,30 @@
 # Hermes 0.23.2 preparation
 
+## Current decision: official Hermes only
+
+The user decided to retire the Jumper core fork after the local validation.
+The deployment target is the **unmodified official Hermes v0.23.2**, commit
+`ae2a81ccc00e9b7c06301523e5bb09608397149c`. The plugin changes remain valid:
+the official source independently passed 402 full-suite tests and the 34-test
+setup follow-up, including two profiles in a shared gateway. CI already uses
+official upstream commits; no workflow or runtime-code change is required by
+this decision.
+
+The imported Kanban branch `codex/jumper-hermes-0.23.2` / `ea55ee2` is retained
+only as historical review evidence. It is **not a deployment dependency or a
+migration gate**. Do not port or reapply its patch. The historical fork-specific
+voice controls and session permission-name persistence are likewise not work
+items to restore in core. Preserve their configuration inventory for comparison;
+use native settings where equivalent and record any behavior differences before
+cutover. Darla's per-job cron model override is independent of that Kanban patch.
+
+The **Checar a VPS Ops** chat independently confirmed that the SoWork solution
+works on official 0.23.2. Its subsequent DirectSDK investigation is a separate
+plugin/update track; authenticated operation and profile isolation still need
+VPS validation. State backups, credentials, systemd, Caddy/webhooks and the
+shared-gateway cutover remain operational work even with an unmodified core.
+No production action is authorized or performed by this documentation update.
+
 ## Reconciled baseline (2026-11-17)
 
 The local review and the **Checar a VPS Ops** chat independently reproduced the
@@ -15,7 +40,7 @@ modified files; this workspace tested SoWork 0.14.0 and published 0.15.0
 `jumper/production` branch (`be375ce1136`) is older than the live VPS source.
 Do not use that branch alone as the production preservation baseline.
 
-The VPS chat owns the core/Kanban port. Its reviewed candidate is
+The VPS study produced a core/Kanban port. Its historical reviewed candidate is
 `ea55ee288ed2159e27a5f21926139b643cfde6af`, branch
 `codex/jumper-hermes-0.23.2`, based on the release above. The code-only bundle
 was imported locally without changing either production or this workspace's
@@ -37,7 +62,7 @@ databases into this repository.
 | Artifact | Required evidence and purpose |
 |---|---|
 | Live core source | Exact HEAD, remotes and `git diff --binary` for all six modified files. The peer captured `work/hermes-update-study/live-customizations.patch`, SHA-256 `0dc7a7b635833a639e392e17097af89e9d64aa475176080cbfd14bf092dadf8e`; recheck it before deployment. |
-| Kanban customization | Preserve worker-model/provider defaults and card-pin precedence. Upstream streaming support already supersedes two local streaming changes; do not blindly reapply the whole patch. Core port and evidence belong to the VPS chat. |
+| Historical Kanban customization | Archive worker-model/provider settings and card-pin precedence for comparison. The custom default is not a deployment requirement after the official-core decision. Upstream streaming already supersedes two local changes; do not reapply the patch. |
 | Installed plugins | Exact source revisions, local diffs and install metadata for each profile, including SoWork and the private DirectSDK plugin. A source export of installed SoWork 0.13 exists in the peer study. |
 | DirectSDK | Code, manifest, synthetic tests and launch configuration shape. Basic import worked in the VPS study; two tests rely on old core APIs. Authenticated execution and cancellation are not yet certified. |
 | Profile configuration | Sanitized model/worker routes, platform settings, allowlists, channel prompts, 1Password mapping field names, voice command settings, and configured paths. Preserve actual values on the VPS; no `.env`, token, auth or bootstrap copies here. |
@@ -68,8 +93,8 @@ databases into this repository.
 - The peer's follow-up confirmed that Darla's BestBuy cron has its own native
   job model/provider override. It does not depend on `kanban.worker_model`.
   Whether active Kanban cards still need the custom default is a separate
-  inventory question; this preparation preserves the candidate without deciding
-  to remove it or migrate any live job.
+  inventory question. The official-core decision above supersedes the earlier
+  candidate-preservation plan; no live job is migrated by this preparation.
 
 ## Validation boundary
 
@@ -148,6 +173,7 @@ allowlist edited or production migration performed by this preparation.
 Before any production cutover, close the VPS artifact/rollback inventory above,
 validate the private DirectSDK path with real authentication and cancellation,
 confirm voice scripts, and review the fifteen-gateway service/proxy migration.
-The locally imported core candidate preserves Kanban worker routing; it does not
-certify every historical fork customization or resolve unrelated OAuth/cron
-failures. Production access and all other channels remain untouched.
+The official-core decision removes the Kanban port from the rollout plan.
+Historical candidate test results are retained as evidence; they do not resolve
+unrelated OAuth/cron failures. Production access and all other channels remain
+untouched.
