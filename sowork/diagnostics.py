@@ -67,6 +67,14 @@ def _shared_gateway_summary(home):
             "multiplexer_liveness_for_profile", "runtime_status_heartbeat_age_s",
             "profile_name_for_home", "profile_platforms_from_multiplexer")):
         return None
+    from gateway import host_rendezvous
+    from hermes_constants import get_default_hermes_root
+    # The older native liveness resolver imports the CLI's setup stack. Avoid
+    # initializing it for an offline home with no possible shared host record.
+    # Existence is only a prefilter; native liveness still proves ownership.
+    if not (host_rendezvous.record_path(host_rendezvous.ROLE_GATEWAY).is_file()
+            or (get_default_hermes_root() / "gateway_state.json").is_file()):
+        return None
     owner = resolve(home)
     if owner is None:
         return None

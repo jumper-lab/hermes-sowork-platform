@@ -44,11 +44,20 @@ def test_broken_caption_contract_is_reported(monkeypatch):
 
 def test_shared_status_uses_only_the_attested_profile(monkeypatch, tmp_path):
     from gateway import status
+    from gateway import host_rendezvous
     from sowork.diagnostics import gateway_summary
     if not hasattr(status, "profile_platforms_from_multiplexer"):
         pytest.skip("native shared-gateway status projection is unavailable")
     record = {"pid":123,"platforms":{"alpha:sowork":{"state":"connected"},
                                    "beta:sowork":{"state":"fatal"}}}
+    host_record = tmp_path / "host-record.json"
+    monkeypatch.setattr(host_rendezvous,"record_path",lambda role:host_record)
+    monkeypatch.setattr("hermes_constants.get_default_hermes_root",lambda:tmp_path)
+    def forbidden(home):
+        raise AssertionError("An offline home must not initialize native CLI liveness")
+    monkeypatch.setattr(status,"multiplexer_liveness_for_profile",forbidden)
+    assert gateway_summary(tmp_path/'alpha',0)=={'state':'unknown','fresh':False}
+    host_record.write_text("{}")
     monkeypatch.setattr(status,"multiplexer_liveness_for_profile",lambda home:(123,record))
     monkeypatch.setattr(status,"profile_name_for_home",lambda home:home.name)
     monkeypatch.setattr(status,"runtime_status_heartbeat_age_s",lambda runtime:1)
