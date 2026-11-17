@@ -124,6 +124,8 @@ async def lease(store, identity):
 
 async def standalone_send(config, chat_id, message, *, host, thread_id=None, media_files=None, force_document=False):
     """Native PlatformEntry standalone_sender_fn; credentials come from the active profile."""
+    from .runtime import require_supported_runtime
+    require_supported_runtime()
     from gateway.config import Platform, load_gateway_config
     from .adapter import SoWorkAdapter
     from .config import Settings

@@ -42,6 +42,17 @@ def test_broken_caption_contract_is_reported(monkeypatch):
     assert "native outbound caption helpers" in runtime.missing_contracts()
 
 
+async def test_standalone_sender_checks_contracts_before_profile_or_credentials(monkeypatch):
+    from sowork.proactive import standalone_send
+    from sowork.config import Credentials
+    monkeypatch.setattr(hermes_compat, "_caption_helpers", lambda: (lambda: None, 4096))
+    def forbidden(*args, **kwargs):
+        raise AssertionError("An incompatible standalone sender must not resolve credentials")
+    monkeypatch.setattr(Credentials, "from_scope", forbidden)
+    with pytest.raises(RuntimeError, match="native outbound caption helpers"):
+        await standalone_send(None, "dm", "refused", host=None)
+
+
 def test_shared_status_uses_only_the_attested_profile(monkeypatch, tmp_path):
     from gateway import status
     from gateway import host_rendezvous
