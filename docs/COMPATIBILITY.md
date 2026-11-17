@@ -9,14 +9,15 @@ Validation targets are immutable public commits:
 | Hermes 0.21.5 development runtime | `79af3f6cea8067284a7ea5725078578b3f790adb` |
 | Hermes v0.22.2 | `d923a5eb487a17c0a68801bba9ef0f56c81040a8` |
 | Public main inspected on 2026-10-18 | `e868508f5d341bc8dcaa827eb1d61c45ad14ddca` |
+| Hermes v0.23.2 | `ae2a81ccc00e9b7c06301523e5bb09608397149c` |
 
-CI uses those commits on Linux/macOS with Python 3.14. Local validation uses the prepared Hermes Python 3.11 environment and disposable profiles; exact results belong in PUBLICATION.md. A configured matrix is not evidence that GitHub CI has already run.
+CI uses those commits on Linux/macOS with Python 3.14. The 0.23.2 preparation uses Python 3.14.7 on macOS ARM64, separate native dependency environments for each source revision, and disposable profiles; exact results belong in HERMES-0232.md. Earlier publication results remain in PUBLICATION.md. A configured matrix is not evidence that GitHub CI has already run.
 
 The plugin preserves Hermes' own authorization/session/delivery contracts. The gateway/scheduler internals it currently integrates with are covered by real-import tests and disclosed for review; compatibility with every future Hermes revision is not guaranteed. A catalog validator may warn about undocumented imports. Updating the minimum or pin requires reviewing those contracts again.
 
 ## Streaming
 
-The current public stable/main cores reject streaming for external-process providers, even when a provider declares a streaming capability. The private operational deployment used separately reviewed core/provider patches; those patches are not bundled, applied or required for basic operation of this public plugin. `check-preview` reports the real native selector outcome for each persisted route. For a blocked route, activity status and the final response remain available; token preview needs a compatible core/provider. HTTP/OAuth routes with native streaming support have independent tests. Do not advertise universal Opus/DirectSDK preview compatibility.
+Earlier pinned cores rejected streaming for external-process providers even with a capability declaration. Hermes 0.23.2's native selector admits an external-process provider that explicitly declares `supports_streaming = True`; this replaces the corresponding private core change. `check-preview` reports the actual native selector outcome for each persisted route. For a blocked route, activity status and the final response remain available; token preview needs a compatible core/provider. Synthetic selector tests do not certify authenticated Opus/DirectSDK generation or cancellation. HTTP/OAuth routes with native streaming support have independent tests.
 
 ## Supported access and hosts
 
@@ -37,3 +38,16 @@ is not a claim that these remaining internals became public APIs.
 The full gateway process suite also exercises native durable admission. Transport
 flags stay on the local MessageEvent object because native admission deliberately
 rejects arbitrary metadata. No host whitelist, prompt or core source is modified.
+
+## Hermes 0.23.2
+
+The browser-extension wrapper and `tools.send_message_tool` were removed. The
+plugin reads the same executor-owned `_approval_tool_call_id` ContextVar from
+`tools.approval_context`, checked before startup, and uses the native outbound
+caption splitter in `gateway.outbound.senders` (legacy path on older cores).
+These remain checked internal seams, not newly public APIs. No metadata or
+environment value can substitute for execution ownership.
+
+The [migration preparation](HERMES-0232.md) reconciles the VPS study and lists
+the core/Kanban, DirectSDK, voice, service and proxy artifacts required for the
+operational cutover. A successful plugin suite does not certify that cutover.

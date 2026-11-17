@@ -59,11 +59,40 @@ def database_summary(home, subscription_id, now):
     return matches[0] if matches else None
 
 
+def _shared_gateway_summary(home):
+    """Project only this served profile after Hermes attests the host's ownership."""
+    from gateway import status
+    resolve = getattr(status, "multiplexer_liveness_for_profile", None)
+    if not all(callable(getattr(status, name, None)) for name in (
+            "multiplexer_liveness_for_profile", "runtime_status_heartbeat_age_s",
+            "profile_name_for_home", "profile_platforms_from_multiplexer")):
+        return None
+    from gateway import host_rendezvous
+    from hermes_constants import get_default_hermes_root
+    # The older native liveness resolver imports the CLI's setup stack. Avoid
+    # initializing it for an offline home with no possible shared host record.
+    # Existence is only a prefilter; native liveness still proves ownership.
+    if not (host_rendezvous.record_path(host_rendezvous.ROLE_GATEWAY).is_file()
+            or (get_default_hermes_root() / "gateway_state.json").is_file()):
+        return None
+    owner = resolve(home)
+    if owner is None:
+        return None
+    pid, runtime = owner
+    age = status.runtime_status_heartbeat_age_s(runtime)
+    name = status.profile_name_for_home(home)
+    state = status.profile_platforms_from_multiplexer(runtime, name).get("sowork", {}).get("state")
+    fresh = age is not None and age <= 120 and runtime.get("pid") == pid
+    allowed = {"connected", "disconnected", "connecting", "error", "failed", "fatal"}
+    return {"state": state if fresh and state in allowed else "unknown", "fresh": fresh,
+            "snapshot_age_seconds": age, "shared_gateway": True}
+
+
 def gateway_summary(home, now):
     path = home / "gateway_state.json"
-    if not path.is_file() or path.is_symlink():
-        return {"state": "unknown", "fresh": False}
     try:
+        if not path.is_file() or path.is_symlink():
+            return _shared_gateway_summary(home) or {"state": "unknown", "fresh": False}
         data = json.loads(path.read_text())
         age = max(0, now - path.stat().st_mtime)
         from gateway.status import get_runtime_status_running_pid
@@ -71,6 +100,10 @@ def gateway_summary(home, now):
         # identity and the requested profile; bare PID existence is insufficient.
         pid = get_runtime_status_running_pid(data, expected_home=home)
         fresh = age <= 120 and pid is not None and pid == int(data["pid"])
+        if not fresh:
+            shared = _shared_gateway_summary(home)
+            if shared is not None:
+                return shared
         state = data.get("platforms", {}).get("sowork", {}).get("state")
         allowed = {"connected", "disconnected", "connecting", "error", "failed", "fatal"}
         return {"state": state if fresh and state in allowed else "unknown", "fresh": fresh,

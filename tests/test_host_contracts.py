@@ -8,6 +8,77 @@ from test_contracts import adapter  # noqa: F401
 from test_proactive import enable
 
 
+def test_executor_identity_uses_native_context_without_browser_module(monkeypatch):
+    import sys
+    from tools.approval_context import set_current_observability_context, reset_current_observability_context
+    monkeypatch.setitem(sys.modules, "tools.browser_extension_router", None)
+    assert hermes_compat.tool_call_id() == ""
+    token = set_current_observability_context(tool_call_id="native-call")
+    try:
+        assert hermes_compat.tool_call_id() == "native-call"
+    finally:
+        reset_current_observability_context(token)
+    assert hermes_compat.tool_call_id() == ""
+
+
+def test_missing_executor_identity_stops_before_credentials(monkeypatch):
+    from tools import approval_context
+    monkeypatch.setattr(approval_context, "_approval_tool_call_id", None)
+    assert "tools.approval_context._approval_tool_call_id" in runtime.missing_contracts()
+    with pytest.raises(RuntimeError, match="_approval_tool_call_id"):
+        plugin.build_adapter(None)
+
+
+def test_native_caption_split_preserves_long_text_and_media():
+    caption, text = hermes_compat.split_caption("caption", [("neutral.png", False)])
+    assert caption == "caption" and not text
+    message = "x" * 20000
+    caption, text = hermes_compat.split_caption(message, [("neutral.png", False)])
+    assert text == message and not caption
+
+
+def test_broken_caption_contract_is_reported(monkeypatch):
+    monkeypatch.setattr(hermes_compat, "_caption_helpers", lambda: (lambda: None, 4096))
+    assert "native outbound caption helpers" in runtime.missing_contracts()
+
+
+async def test_standalone_sender_checks_contracts_before_profile_or_credentials(monkeypatch):
+    from sowork.proactive import standalone_send
+    from sowork.config import Credentials
+    monkeypatch.setattr(hermes_compat, "_caption_helpers", lambda: (lambda: None, 4096))
+    def forbidden(*args, **kwargs):
+        raise AssertionError("An incompatible standalone sender must not resolve credentials")
+    monkeypatch.setattr(Credentials, "from_scope", forbidden)
+    with pytest.raises(RuntimeError, match="native outbound caption helpers"):
+        await standalone_send(None, "dm", "refused", host=None)
+
+
+def test_shared_status_uses_only_the_attested_profile(monkeypatch, tmp_path):
+    from gateway import status
+    from gateway import host_rendezvous
+    from sowork.diagnostics import gateway_summary
+    if not hasattr(status, "profile_platforms_from_multiplexer"):
+        pytest.skip("native shared-gateway status projection is unavailable")
+    record = {"pid":123,"platforms":{"alpha:sowork":{"state":"connected"},
+                                   "beta:sowork":{"state":"fatal"}}}
+    host_record = tmp_path / "host-record.json"
+    monkeypatch.setattr(host_rendezvous,"record_path",lambda role:host_record)
+    monkeypatch.setattr("hermes_constants.get_default_hermes_root",lambda:tmp_path)
+    def forbidden(home):
+        raise AssertionError("An offline home must not initialize native CLI liveness")
+    monkeypatch.setattr(status,"multiplexer_liveness_for_profile",forbidden)
+    assert gateway_summary(tmp_path/'alpha',0)=={'state':'unknown','fresh':False}
+    host_record.write_text("{}")
+    monkeypatch.setattr(status,"multiplexer_liveness_for_profile",lambda home:(123,record))
+    monkeypatch.setattr(status,"profile_name_for_home",lambda home:home.name)
+    monkeypatch.setattr(status,"runtime_status_heartbeat_age_s",lambda runtime:1)
+    assert gateway_summary(tmp_path/'alpha',0)['state']=='connected'
+    assert gateway_summary(tmp_path/'beta',0)['state']=='fatal'
+    assert gateway_summary(tmp_path/'unserved-platform',0)['state']=='unknown'
+    monkeypatch.setattr(status,"multiplexer_liveness_for_profile",lambda home:None)
+    assert gateway_summary(tmp_path/'alpha',0)=={'state':'unknown','fresh':False}
+
+
 @pytest.mark.parametrize("name,replacement", [("_ACTIVE_DELIVERIES", None), ("_PROCESS_ID", 1), ("_lock", None), ("get_status", lambda: None)])
 def test_changed_queue_contract_is_reported_before_startup(monkeypatch, name, replacement):
     from cron import delivery_queue

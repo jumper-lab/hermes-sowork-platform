@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.16.0 — Hermes 0.23.2 compatibility
+
+- Read the native executor's tool-call ContextVar directly, preserving execution identity without the removed browser extension wrapper.
+- Resolve standalone caption helpers from the new outbound package, keeping the legacy path for older supported Hermes versions.
+- Probe the execution-context and caption contracts before adapter construction; preserve all authorization, journal and idempotency checks.
+- Cover Hermes v0.23.2 in the Linux/macOS compatibility matrix and adapt tests to the current cron, dependency-workspace and accepted-interrupt contracts.
+- Resolve served-profile diagnostics through the verified shared gateway instead of requiring a per-profile status file.
+- Exercise two real SoWork profiles in one gateway, including tenant credentials/history, independent cursors and recovery of an accepted pending delivery without duplicate model work or messages.
+
 ## 0.15.0 — reusable character appearance preparation
 
 - Bundle an opt-in appearance skill with a portrait/interview workflow, corrected Sabrina/Newton v5 presets and app-profile setup guidance.

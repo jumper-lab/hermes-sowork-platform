@@ -75,7 +75,10 @@ def test_native_dependency_workspace_keeps_profile_versions_distinct(tmp_path):
     before = {path: (path / "pyproject.toml").read_bytes() for path in copies}
 
     workspace = tmp_path / "workspace"
-    _generate_pyproject(copies, workspace, source=core)
+    import inspect
+    import sys
+    python = {"python": Path(sys.executable)} if "python" in inspect.signature(_generate_pyproject).parameters else {}
+    _generate_pyproject(copies, workspace, source=core, **python)
     root = tomllib.loads((workspace / "pyproject.toml").read_text())
     members = [tomllib.loads((workspace / member / "pyproject.toml").read_text())
                for member in root["tool"]["uv"]["workspace"]["members"]]
