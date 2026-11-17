@@ -8,6 +8,40 @@ from test_contracts import adapter  # noqa: F401
 from test_proactive import enable
 
 
+def test_executor_identity_uses_native_context_without_browser_module(monkeypatch):
+    import sys
+    from tools.approval_context import set_current_observability_context, reset_current_observability_context
+    monkeypatch.setitem(sys.modules, "tools.browser_extension_router", None)
+    assert hermes_compat.tool_call_id() == ""
+    token = set_current_observability_context(tool_call_id="native-call")
+    try:
+        assert hermes_compat.tool_call_id() == "native-call"
+    finally:
+        reset_current_observability_context(token)
+    assert hermes_compat.tool_call_id() == ""
+
+
+def test_missing_executor_identity_stops_before_credentials(monkeypatch):
+    from tools import approval_context
+    monkeypatch.setattr(approval_context, "_approval_tool_call_id", None)
+    assert "tools.approval_context._approval_tool_call_id" in runtime.missing_contracts()
+    with pytest.raises(RuntimeError, match="_approval_tool_call_id"):
+        plugin.build_adapter(None)
+
+
+def test_native_caption_split_preserves_long_text_and_media():
+    caption, text = hermes_compat.split_caption("caption", [("neutral.png", False)])
+    assert caption == "caption" and not text
+    message = "x" * 20000
+    caption, text = hermes_compat.split_caption(message, [("neutral.png", False)])
+    assert text == message and not caption
+
+
+def test_broken_caption_contract_is_reported(monkeypatch):
+    monkeypatch.setattr(hermes_compat, "_caption_helpers", lambda: (lambda: None, 4096))
+    assert "native outbound caption helpers" in runtime.missing_contracts()
+
+
 @pytest.mark.parametrize("name,replacement", [("_ACTIVE_DELIVERIES", None), ("_PROCESS_ID", 1), ("_lock", None), ("get_status", lambda: None)])
 def test_changed_queue_contract_is_reported_before_startup(monkeypatch, name, replacement):
     from cron import delivery_queue

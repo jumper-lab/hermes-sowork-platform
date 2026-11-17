@@ -7,7 +7,8 @@ MINIMUM_HERMES = "0.21.5"
 
 def missing_contracts():
     missing = []
-    for module in ("hermes_yaml", "cron.execution_identity", "cron.scheduler_delivery", "gateway.run_turn_runner"):
+    for module in ("hermes_yaml", "cron.execution_identity", "cron.scheduler_delivery", "gateway.run_turn_runner",
+                   "tools.approval_context"):
         try:
             if importlib.util.find_spec(module) is None:
                 missing.append(module)

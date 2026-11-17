@@ -9,6 +9,7 @@ Validation targets are immutable public commits:
 | Hermes 0.21.5 development runtime | `79af3f6cea8067284a7ea5725078578b3f790adb` |
 | Hermes v0.22.2 | `d923a5eb487a17c0a68801bba9ef0f56c81040a8` |
 | Public main inspected on 2026-10-18 | `e868508f5d341bc8dcaa827eb1d61c45ad14ddca` |
+| Hermes v0.23.2 | `ae2a81ccc00e9b7c06301523e5bb09608397149c` |
 
 CI uses those commits on Linux/macOS with Python 3.14. Local validation uses the prepared Hermes Python 3.11 environment and disposable profiles; exact results belong in PUBLICATION.md. A configured matrix is not evidence that GitHub CI has already run.
 
@@ -37,3 +38,16 @@ is not a claim that these remaining internals became public APIs.
 The full gateway process suite also exercises native durable admission. Transport
 flags stay on the local MessageEvent object because native admission deliberately
 rejects arbitrary metadata. No host whitelist, prompt or core source is modified.
+
+## Hermes 0.23.2
+
+The browser-extension wrapper and `tools.send_message_tool` were removed. The
+plugin reads the same executor-owned `_approval_tool_call_id` ContextVar from
+`tools.approval_context`, checked before startup, and uses the native outbound
+caption splitter in `gateway.outbound.senders` (legacy path on older cores).
+These remain checked internal seams, not newly public APIs. No metadata or
+environment value can substitute for execution ownership.
+
+The [migration preparation](HERMES-0232.md) reconciles the VPS study and lists
+the core/Kanban, DirectSDK, voice, service and proxy artifacts required for the
+operational cutover. A successful plugin suite does not certify that cutover.

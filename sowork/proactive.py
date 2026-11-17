@@ -160,9 +160,8 @@ async def standalone_send(config, chat_id, message, *, host, thread_id=None, med
         elif thread_id:
             await verify_dm(adapter)
         # Match native live send_message caption placement; cron always sends text and files separately.
-        from .hermes_compat import tool_call_id, queued_execution
-        from tools.send_message_tool import _media_caption_split, _DEFAULT_CAPTION_LIMIT
-        caption, text = (_media_caption_split(message, media_files or [], max_caption_len=_DEFAULT_CAPTION_LIMIT)
+        from .hermes_compat import tool_call_id, split_caption
+        caption, text = (split_caption(message, media_files or [])
                          if tool_call_id() else (None, message))
         result = None
         if text and text.strip():

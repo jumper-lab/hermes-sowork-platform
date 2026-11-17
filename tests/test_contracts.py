@@ -402,6 +402,9 @@ async def test_native_stop_during_processing_finishes_both_inbox_rows(adapter):
     started = asyncio.Event()
     async def handler(inbound):
         if inbound.text == "/stop":
+            accept = getattr(inbound, "accept_interrupt", None)
+            if callable(accept):
+                accept()  # Native runner marks an authorized interrupt on new cores.
             return "Stopped"
         started.set()
         await asyncio.Event().wait()

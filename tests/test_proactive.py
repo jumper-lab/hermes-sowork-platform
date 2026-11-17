@@ -40,7 +40,12 @@ def write_config(adp):
 def test_native_cron_origin_capture_is_enabled_only_for_the_pinned_surface(adapter):
     adp, _, _ = adapter
     from gateway.session_context import set_session_vars, clear_session_vars
-    from tools.cronjob_job_args import _origin_from_env
+    try:
+        from cron.job_args import _origin_from_env
+    except ModuleNotFoundError as error:
+        if error.name != "cron.job_args":
+            raise
+        from tools.cronjob_job_args import _origin_from_env
     assert adp.supports_async_delivery is False
     enable(adp)
     tokens = set_session_vars(platform="sowork", chat_id="dm", user_id="human", async_delivery=adp.supports_async_delivery)
@@ -55,7 +60,12 @@ def test_native_target_resolution_restricts_every_destination_to_the_pinned_dm(a
     adp, _, _ = adapter
     enable(adp)
     write_config(adp)
-    from tools.send_message_targets import resolve_send_target
+    try:
+        from gateway.outbound.targets import resolve_send_target
+    except ModuleNotFoundError as error:
+        if error.name not in {"gateway.outbound", "gateway.outbound.targets"}:
+            raise
+        from tools.send_message_targets import resolve_send_target
     assert resolve_send_target("sowork", "dm") == ("dm", None, None)
     for destination in ("another", "dm:thread", "*", "human"):
         assert resolve_send_target("sowork", destination)[2]

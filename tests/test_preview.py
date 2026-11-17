@@ -196,14 +196,16 @@ async def test_long_final_split_only_after_completion(preview):
     inbound, feedback = await started(adp)
     sc = consumer(adp)
     task = asyncio.create_task(sc.run())
-    text = 'x' * (adp.MAX_MESSAGE_LENGTH + 1000)
+    # A single unbroken token is intentionally held by native secret redaction.
+    text = 'farol azul ' * (adp.MAX_MESSAGE_LENGTH // 10 + 100)
     sc.on_delta(text)
     await wait_for(lambda: feedback.preview)
     assert not api.deliveries
     sc.finish(text)
     await task
-    # Native long-message splitting adds ordinal suffixes; none of the answer is lost.
-    assert ''.join(re.sub(r' \(\d+/\d+\)$', '', body['text']) for body, _ in api.deliveries.values()) == text
+    # Native splits add ordinal suffixes and normalize boundary whitespace.
+    parts = [re.sub(r' \(\d+/\d+\)$', '', body['text']) for body, _ in api.deliveries.values()]
+    assert ' '.join(parts).split() == text.split()
     assert all(len(body['text']) <= adp.MAX_MESSAGE_LENGTH for body, _ in api.deliveries.values())
     await complete(adp, inbound)
     await adp.disconnect()

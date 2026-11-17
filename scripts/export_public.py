@@ -7,7 +7,7 @@ import shutil
 
 ROOT_FILES = ('__init__.py', 'plugin.yaml', 'pyproject.toml', 'soworkctl.py',
               'README.md', 'LICENSE', 'CHANGELOG.md', 'SECURITY.md', '.gitignore', 'MANIFEST.in')
-DOCS = ('COMPATIBILITY.md', 'MIGRATION.md', 'PUBLICATION.md', 'VALIDATION.json', 'HERMES-API-PROPOSAL.md', 'APPEARANCE.md')
+DOCS = ('COMPATIBILITY.md', 'MIGRATION.md', 'PUBLICATION.md', 'VALIDATION.json', 'HERMES-API-PROPOSAL.md', 'APPEARANCE.md', 'HERMES-0232.md')
 SCRIPTS = ('verify.py', 'export_public.py')
 APPEARANCE_SKILL = ('SKILL.md', 'references/app-profile.md', 'assets/sabrina.json',
                     'assets/newton.json', 'evals/BASELINE.md', 'evals/evals.json')
