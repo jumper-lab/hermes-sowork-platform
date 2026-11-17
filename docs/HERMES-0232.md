@@ -65,6 +65,11 @@ databases into this repository.
   (the new loader copies providers into scoped namespaces) and the removed
   `ContextCompressor._truncate_tool_call_args_at` helper. Those are test-contract
   failures, not evidence that authenticated generation or cancellation works.
+- The peer's follow-up confirmed that Darla's BestBuy cron has its own native
+  job model/provider override. It does not depend on `kanban.worker_model`.
+  Whether active Kanban cards still need the custom default is a separate
+  inventory question; this preparation preserves the candidate without deciding
+  to remove it or migrate any live job.
 
 ## Validation boundary
 
@@ -84,3 +89,65 @@ saved receipt key without calling the model again or duplicating delivery.
 The native CLI status is also checked for both profiles: a served profile owns
 no status file, so the plugin projects only that profile's state from the
 live host after native ownership verification.
+
+## Local implementation and evidence (2026-11-17)
+
+Two local plugin branches are stacked on public main `a956b507`:
+
+| Branch/commit | Review scope |
+|---|---|
+| `codex/sowork-hermes-0232`: `f788146`, `7b7f1c6` | Reconciled preservation inventory; removed-browser initialization fix; native outbound caption compatibility; startup contract checks; version 0.16.0 and immutable 0.23.2 CI target. |
+| `codex/sowork-shared-gateway-0232`: `b4105f1`, `829b8d1`, `28c69ca`, `7c0133b` | Verified served-profile status; real two-profile/restart tests; inert offline status without host records; the same pre-credential contract checks for standalone proactive delivery. |
+| `codex/sowork-shared-gateway-0232`: `ab2d364` | Test-only correction: publish the cross-process config-lock verdict by atomic rename. The old signal file could exist while its JSON was still empty. No production config-lock behavior changes. |
+| Core `codex/jumper-hermes-0.23.2`: `ea55ee2` | Imported peer-authored Kanban candidate; four files relative to upstream, no duplicate local core implementation. |
+
+The complete plugin suite at runtime-code commit `7c0133b` ran through native
+`scripts/run_tests.sh`, four workers, file retries **zero**. Each source revision
+had its own native PM environment; reusing a different source's editable
+environment can silently mix core modules and is not valid evidence.
+
+| Hermes source | Local platform | Result |
+|---|---|---|
+| Official v0.23.2 `ae2a81ccc00e9b7c06301523e5bb09608397149c` | macOS ARM64, Python 3.14.7 | 402 passed, 0 failed |
+| Combined Kanban candidate `ea55ee288ed2159e27a5f21926139b643cfde6af` | macOS ARM64, Python 3.14.7 | 402 passed, 0 failed |
+| Older VPS base `79af3f6cea8067284a7ea5725078578b3f790adb` | macOS ARM64, Python 3.14.7 | 402 passed, 0 failed |
+
+After the test-signal-only commit `ab2d364`, the entire setup test file was run
+again through the native runner against all three sources: **34 passed per
+source, zero failures and zero retries**. No runtime code changed after the
+402-test runs. The final documentation updates do not change executable code.
+
+All three include the two real shared-gateway process tests; none substitutes a
+mocked gateway for profile routing, credential lookup, durable admission or
+crash recovery. Existing authorization, proactive identity, thread, media,
+preview and setup tests run in the same suite. No actual provider generation,
+1Password account or SoWork workspace is used.
+
+The final public export also passed native `hermes plugins validate --json`.
+Dependency installation was validated separately with `--install-deps` in a
+disposable home. The validator reports **no core override** and retains its
+warning about private core imports. A platform plugin runs inside the gateway;
+the validator's `host_ready: false` describes process isolation, not a failed
+registration. Internal contracts remain a maintenance risk across later Hermes
+releases and are checked before both adapter startup and standalone delivery.
+
+Reproduce the full local suite from a clean checkout and matching native PM
+environment:
+
+```sh
+python scripts/export_public.py --output /tmp/sowork-public
+python /tmp/sowork-public/scripts/verify.py --hermes /path/to/hermes-source --venv /path/to/matching-native-env --output /tmp/sowork-results
+```
+
+The CI matrix now includes the immutable 0.23.2 commit on both Linux and macOS,
+for eight jobs in total. **GitHub CI has not been dispatched for these local
+branches.** The peer's Linux core results are separate evidence, not a Linux
+plugin run. No branch was pushed, production gateway restarted, subscription changed,
+allowlist edited or production migration performed by this preparation.
+
+Before any production cutover, close the VPS artifact/rollback inventory above,
+validate the private DirectSDK path with real authentication and cancellation,
+confirm voice scripts, and review the fifteen-gateway service/proxy migration.
+The locally imported core candidate preserves Kanban worker routing; it does not
+certify every historical fork customization or resolve unrelated OAuth/cron
+failures. Production access and all other channels remain untouched.
