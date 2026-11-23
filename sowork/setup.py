@@ -4,19 +4,21 @@ from __future__ import annotations
 import asyncio
 import copy
 import getpass
+import hashlib
 import json
 import math
 import os
+import re
 import secrets
 import shlex
 import sys
 import time
 
 from .admin import AdminError, binding, managed_config_present, preview_compatible, read_config, verify_connection, write_config
-from .client import Client, DM_EVENT, THREAD_EVENT, SoWorkError
+from .client import Client, DM_EVENT, THREAD_EVENT, SoWorkError, exchange_setup_token
 from .config import Settings
 from .lock import SubscriptionLock
-from .setup_secrets import credentials, require_active_profile
+from .setup_secrets import check_token_profile, credentials, require_active_profile, save_token_credentials
 
 
 class Console:
@@ -76,6 +78,39 @@ class Journal:
                 os.close(directory)
         finally:
             temporary.unlink(missing_ok=True)
+
+    def record_token_attempt(self, token):
+        # Keep only a fingerprint. Record it before the request, including when
+        # the receipt is lost or this process dies during exchange.
+        digest = hashlib.sha256(token.encode()).hexdigest()
+        marker = self.path.with_name("setup-token-" + digest)
+        try:
+            fd = os.open(marker, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+        except FileExistsError:
+            raise AdminError("setup_token_already_attempted_use_fresh_token") from None
+        os.close(fd)
+        directory = os.open(marker.parent, os.O_RDONLY | os.O_DIRECTORY)
+        try:
+            os.fsync(directory)
+        finally:
+            os.close(directory)
+
+
+async def token_credentials(home, journal, ui):
+    check_token_profile(home)
+    ui.write("Use a fresh token for a new SoWork agent. A token from Reconnect can replace an existing installation. "
+             "Never reuse a submitted token. Hermes saves the resulting credentials in this profile's .env.")
+    if not ui.confirm("Connect a new SoWork installation and save its credentials in this profile?"):
+        raise AdminError("setup_cancelled")
+    token = ui.reference("Paste the SoWork setup token (hidden): ").strip()
+    if len(token) > 1024 or not re.fullmatch(r"sw_app_setup_[A-Za-z0-9_-]+", token):
+        raise AdminError("setup_token_invalid")
+    check_token_profile(home)
+    journal.record_token_attempt(token)
+    try:
+        return await exchange_setup_token(token)
+    except SoWorkError as error:
+        raise AdminError(f"{error.code}_http_{error.status}_check_sowork_before_using_a_fresh_token") from None
 
 
 def paired_candidate(event, identity, nonce, started, owner):
@@ -214,7 +249,8 @@ def activation_command(home):
     return ["env", "HERMES_HOME=" + str(home), "hermes", "--profile", name, "gateway", "restart"]
 
 
-async def run_setup(home, *, ui=None, owner_id=None, resume_subscription=None, client_factory=None, pair_timeout=180):
+async def run_setup(home, *, ui=None, owner_id=None, resume_subscription=None, use_setup_token=False,
+                    client_factory=None, pair_timeout=180):
     from .runtime import require_supported_runtime
     require_active_profile(home)
     require_supported_runtime()
@@ -225,6 +261,8 @@ async def run_setup(home, *, ui=None, owner_id=None, resume_subscription=None, c
     ui = ui or Console()
     config, _ = read_config(home)
     if "sowork" in config.get("platforms", {}):
+        if use_setup_token:
+            raise AdminError("setup_token_requires_unbound_profile")
         binding(config)  # Never replace a partial or existing identity silently.
         from .admin import check_connection
         return {**await check_connection(home), "already_configured": True, "restart_required": False}
@@ -239,7 +277,9 @@ async def run_setup(home, *, ui=None, owner_id=None, resume_subscription=None, c
         ui.write("SoWork setup — active profile: " + label(display_hermes_home()))
         journal = Journal(home)
         pending = journal.read()
-        credential = credentials(home, ui)
+        if use_setup_token and (pending or resume_subscription):
+            raise AdminError("setup_token_resume_with_standard_setup")
+        credential = await token_credentials(home, journal, ui) if use_setup_token else credentials(home, ui)
         client = (client_factory or Client)(credential)
         identity = await client.verify_identity()
         api_owner = identity["installation"].get("ownerUserId")
@@ -252,6 +292,9 @@ async def run_setup(home, *, ui=None, owner_id=None, resume_subscription=None, c
         if "sowork" in config.get("platforms", {}):
             raise AdminError("config_changed_review_again")
         flags = feature_flags(config, identity, ui, pending)
+        if use_setup_token:
+            save_token_credentials(home, credential)
+            ui.write("Credentials saved by Hermes. If pairing is interrupted, rerun setup without --setup-token.")
         names = {"media_enabled": "attachments", "reactions_enabled": "status reactions",
                  "progress_enabled": "private activity indicator", "proactive_enabled": "reminders to your DM",
                  "threads_enabled": "isolated threads", "preview_enabled": "private previews"}
@@ -290,6 +333,7 @@ def interactive(home, args):
     if args.json or not sys.stdin.isatty():
         raise AdminError("setup_requires_interactive_terminal")
     try:
-        return asyncio.run(run_setup(home, owner_id=args.owner_id, resume_subscription=args.subscription_id))
+        return asyncio.run(run_setup(home, owner_id=args.owner_id, resume_subscription=args.subscription_id,
+                                     use_setup_token=args.setup_token))
     except (EOFError, KeyboardInterrupt):
         raise AdminError("setup_cancelled_run_setup_to_resume") from None

@@ -30,6 +30,7 @@ class SoWorkServer:
         self.get_failures = {}
         self.subscriptions = {self.subscription_id: {"id": self.subscription_id, "officeId": "workspace", "events": [DM_EVENT, THREAD_EVENT], "creator": {"id": self.app_user_id}}}
         self.fail_subscription_after_accept = False
+        self.fail_setup_after_accept = False
         self.dm_participants = [{"id": "human"}]
         self.owner_user_id = None
         self.conversations = None
@@ -96,6 +97,14 @@ class SoWorkServer:
             h.send_header("Content-Type", "application/json");h.send_header("Content-Length", str(len(payload)))
             if status == 503:h.send_header("Retry-After", "0")
             h.end_headers();h.wfile.write(payload)
+        if path == "/oauth/setup" and h.command == "POST":
+            assert h.headers.get("Authorization") is None
+            assert body == {"setupToken": "sw_app_setup_synthetic"}
+            if self.fail_setup_after_accept:
+                h.close_connection = True
+                return
+            return reply({"clientId": self.client_id, "clientSecret": self.client_secret,
+                          "installationId": self.installation_id})
         if path == "/oauth/token":
             form = parse_qs(content.decode())
             assert form["client_id"] == [self.client_id]
