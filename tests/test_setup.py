@@ -46,6 +46,7 @@ def rig(plugin_home, monkeypatch, tmp_path):
             "cache_ttl_seconds": 0, "env": {}}}}
     (home / "config.yaml").write_text("# preserve this comment\n" + safe_dump(cfg))
     (home / ".env").write_text("OP_SERVICE_ACCOUNT_TOKEN=own-bootstrap\n")
+    (home / ".env").chmod(0o600)
     peer = tmp_path / "peer";peer.mkdir()
     (peer / ".env").write_text("OP_SERVICE_ACCOUNT_TOKEN=foreign-bootstrap\n")
     (peer / "config.yaml").write_text("# other profile must remain byte-identical\n")
@@ -90,6 +91,41 @@ async def run(rig, ui=None, **kwargs):
     return await setup.run_setup(rig.home, ui=ui or UI(rig), owner_id="human", pair_timeout=10, **kwargs)
 
 
+class TokenUI(UI):
+    def reference(self, prompt):
+        assert "setup token (hidden)" in prompt
+        return "sw_app_setup_synthetic"
+
+
+async def test_token_receipt_loss_does_not_retry_even_after_setup_restarts(rig):
+    rig.api.fail_setup_after_accept = True
+    original = (rig.home / ".env").read_bytes()
+    with pytest.raises(admin.AdminError, match="setup_token_exchange_uncertain"):
+        await run(rig, TokenUI(rig), use_setup_token=True)
+    with pytest.raises(admin.AdminError, match="setup_token_already_attempted"):
+        await run(rig, TokenUI(rig), use_setup_token=True)
+    assert [request[:2] for request in rig.api.requests] == [("POST", "/oauth/setup")]
+    assert (rig.home / ".env").read_bytes() == original
+    assert "sowork" not in admin.read_config(rig.home)[0]["platforms"]
+    assert not rig.record.exists()
+
+
+async def test_token_pairing_resume_uses_saved_secrets_without_a_second_exchange(rig):
+    with pytest.raises(admin.AdminError, match="setup_cancelled_subscription_retained"):
+        await run(rig, TokenUI(rig, deny="Save this SoWork"), use_setup_token=True)
+    assert "sowork" not in admin.read_config(rig.home)[0]["platforms"]
+    # A later CLI starts with a new native scope loaded from this profile.
+    from agent.secret_scope import build_profile_secret_scope, set_secret_scope, reset_secret_scope
+    scope = set_secret_scope(build_profile_secret_scope(rig.home), profile_home=str(rig.home))
+    try:
+        assert (await run(rig))["configured"]
+    finally:
+        reset_secret_scope(scope)
+    assert sum(request[:2] == ("POST", "/oauth/setup") for request in rig.api.requests) == 1
+    assert len(rig.api.subscriptions) == 2
+    assert not rig.record.exists()
+
+
 async def test_setup_native_onepassword_real_http_pairing_and_preservation(rig):
     before_env = (rig.home / ".env").read_bytes()
     before_peer = {p.name:p.read_bytes() for p in rig.peer.iterdir()}
@@ -128,6 +164,12 @@ async def test_setup_native_onepassword_real_http_pairing_and_preservation(rig):
     assert second["already_configured"] and not second["restart_required"]
     assert (rig.home / "config.yaml").read_bytes() == before
     assert len(rig.api.subscriptions) == 2
+    requests = list(rig.api.requests)
+    with pytest.raises(admin.AdminError, match="setup_token_requires_unbound_profile"):
+        await run(rig, TokenUI(rig), use_setup_token=True)
+    assert rig.api.requests == requests
+    assert (rig.home / "config.yaml").read_bytes() == before
+    assert (rig.home / ".env").read_bytes() == before_env
 
 
 async def test_cancelled_pairing_resumes_owned_subscription_without_duplicate(rig):
@@ -363,7 +405,8 @@ def test_console_labels_remove_terminal_controls():
 
 
 @pytest.mark.spawns_gateway_lookalike
-def test_native_cli_setup_from_empty_profile_over_a_real_terminal(rig, tmp_path):
+@pytest.mark.parametrize("method", ["onepassword", "token"])
+def test_native_cli_setup_from_empty_profile_over_a_real_terminal(rig, tmp_path, method):
     import pty
     import re
     import select
@@ -373,12 +416,22 @@ def test_native_cli_setup_from_empty_profile_over_a_real_terminal(rig, tmp_path)
     environment={**os.environ, "HOME":str(tmp_path), "HERMES_HOME":str(rig.home),
                  "PYTHONPATH":str(shim)+os.pathsep+str(Path.cwd()), "SOWORK_TEST_API":rig.api.url}
     master,slave=pty.openpty()
-    process=subprocess.Popen([sys.executable,"-m","hermes_cli.main","sowork","setup","--owner-id","human"],
+    command = [sys.executable,"-m","hermes_cli.main","sowork","setup","--owner-id","human"]
+    if method == "token":
+        command.append("--setup-token")
+        config, _ = admin.read_config(rig.home)
+        config.pop("secrets")
+        (rig.home / "config.yaml").write_text(safe_dump(config))
+        (rig.home / ".env").unlink()
+    process=subprocess.Popen(command,
         stdin=slave,stdout=slave,stderr=slave,env=environment,cwd=Path.cwd())
     os.close(slave)
     output="";sent=set();paired=False;deadline=time.monotonic()+90
-    responses={"SOWORK_USERNAME — paste":"username", "SOWORK_CREDENTIAL — paste":"credential",
-               "SOWORK_INSTALLATION_ID — paste":"installation"}
+    responses = {prompt: "op://"+"a"*26+"/"+"b"*26+"/"+field for prompt,field in
+                 {"SOWORK_USERNAME — paste":"username", "SOWORK_CREDENTIAL — paste":"credential",
+                  "SOWORK_INSTALLATION_ID — paste":"installation"}.items()}
+    if method == "token":
+        responses = {"setup token (hidden)": "sw_app_setup_synthetic"}
     try:
         while time.monotonic()<deadline:
             if select.select([master],[],[],.2)[0]:
@@ -386,10 +439,10 @@ def test_native_cli_setup_from_empty_profile_over_a_real_terminal(rig, tmp_path)
                 except OSError:break
                 if not chunk:break
                 output+=chunk.decode(errors="replace")
-            for prompt,field in responses.items():
+            for prompt,value in responses.items():
                 if prompt in output and prompt not in sent:
-                    os.write(master,("op://"+"a"*26+"/"+"b"*26+"/"+field+"\n").encode());sent.add(prompt)
-            for prompt in ("Save these three references", "Enable isolated threads", "Create ONE exclusive", "Save this SoWork connection"):
+                    os.write(master,(value+"\n").encode());sent.add(prompt)
+            for prompt in ("Connect a new SoWork installation", "Save these three references", "Enable isolated threads", "Create ONE exclusive", "Save this SoWork connection"):
                 if prompt in output and prompt not in sent:
                     os.write(master,b"yes\n");sent.add(prompt)
             match=re.search(r"HERMES-PAIR-[a-f0-9]{16}",output)
@@ -403,6 +456,16 @@ def test_native_cli_setup_from_empty_profile_over_a_real_terminal(rig, tmp_path)
         assert not rig.api.visible() and not rig.api.stream_cursors
         assert "Configured. Activate using the native gateway lifecycle" in output
         assert "test-secret" not in output and "own-bootstrap" not in output
+        if method == "token":
+            assert "sw_app_setup_synthetic" not in output
+            assert "test-secret" not in (rig.home / "config.yaml").read_text()
+            assert "sw_app_setup_synthetic" not in (rig.home / ".env").read_text()
+            assert (rig.home / ".env").stat().st_mode & 0o077 == 0
+            assert not rig.record.exists()
+            verified = subprocess.run([sys.executable, "-m", "hermes_cli.main", "sowork", "--json", "check-connection"],
+                                      env=environment, capture_output=True, text=True, timeout=35)
+            assert verified.returncode == 0, verified.stdout + verified.stderr
+            assert json.loads(verified.stdout.splitlines()[-1])["allowed_user_ids"] == ["human"]
     finally:
         if process.poll() is None:process.kill();process.wait()
         os.close(master)

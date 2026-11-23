@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Add optional SoWork setup-token onboarding for new profiles, using a hidden terminal prompt, Hermes' native credential storage and the existing private DM pairing. Keep standard setup and its 1Password option available.
+
 ## 0.16.0 — Hermes 0.23.2 compatibility
 
 - Read the native executor's tool-call ContextVar directly, preserving execution identity without the removed browser extension wrapper.

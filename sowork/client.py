@@ -34,6 +34,26 @@ class SoWorkError(Exception):
         super().__init__(f"SoWork {self.code} (HTTP {status}){context}")
 
 
+async def exchange_setup_token(token):
+    """Exchange once. Reusing a consumed token can suspend its installation."""
+    async with httpx.AsyncClient(base_url=BASE_URL, trust_env=False, follow_redirects=False,
+                                 timeout=httpx.Timeout(15)) as http:
+        try:
+            response = await http.post("/oauth/setup", json={"setupToken": token})
+        except httpx.TransportError:
+            raise SoWorkError(0, "setup_token_exchange_uncertain") from None
+    if not response.is_success:
+        raise SoWorkError(response.status_code, "setup_token_exchange_refused")
+    try:
+        data = response.json()
+        values = [data[key] for key in ("clientId", "clientSecret", "installationId")]
+        if not all(isinstance(value, str) and re.fullmatch(r"[!-~]+", value) for value in values):
+            raise ValueError()
+        return Credentials(*values)
+    except (ValueError, KeyError, TypeError):
+        raise SoWorkError(502, "setup_token_invalid_receipt") from None
+
+
 def _error(response, *, operation=None):
     code = "api_error"
     try:

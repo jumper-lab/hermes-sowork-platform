@@ -27,7 +27,7 @@ match. The helpers generate local artifacts; app/NPC changes remain separate.
 
 - Hermes **0.21.5 or newer**, subject to the gateway contract check (`check-runtime`). See [compatibility](docs/COMPATIBILITY.md) for exact tested commits.
 - Linux or macOS; Python 3.11–3.14. Windows is not supported because the plugin uses POSIX file locks.
-- An existing SoWork app installation and its installation credentials. Setup creates an exclusive inbox-only subscription and confirms one human/DM; it never expands granted scopes.
+- A SoWork app installation with its credentials, or a fresh setup token issued by a compatible SoWork app. Setup creates an exclusive inbox-only subscription and confirms one human/DM within the granted scopes.
 
 ## Installation
 
@@ -39,6 +39,14 @@ hermes --profile my-agent sowork setup
 ```
 
 Use the same profile for both commands. This is not yet a catalog listing. Manual configuration remains available through the [non-secret example](examples/config.yaml).
+
+For a new profile binding, a compatible SoWork app can issue a fresh, single-use setup token. Use the SoWork flow for a **new agent**. A token issued through **Reconnect** can replace an existing installation. Run the following command and enter the token at the hidden terminal prompt.
+
+```sh
+hermes --profile my-agent sowork setup --setup-token
+```
+
+Hermes saves the three exchanged credentials in the active profile's private `.env`. Use owner-only permissions if that file already exists. Setup keeps the same identity checks, exclusive subscription approval, private DM pairing and final config confirmation as standard setup. The token option refuses an existing SoWork binding or credentials. If pairing is interrupted after credentials are saved, rerun ordinary `sowork setup` to resume. If the token exchange fails or its response is lost, check for a new installation in SoWork before requesting a fresh token. Reusing a submitted token can suspend the installation it created.
 
 This distribution loads from the profile's plugin directory. Its Python declaration is dependency-only, so different profiles can retain different plugin versions in Hermes' shared dependency environment without installing competing global Python packages or console scripts. Use `hermes sowork` through the selected profile.
 
@@ -56,7 +64,7 @@ Configure these credentials **in Hermes**, through its supported profile secret 
 
 1Password remains supported **through Hermes' own secret-source configuration**. Configure that backend for the intended profile first. If any of the three credentials is missing, setup asks for the corresponding `op://vault/item/field` references and confirms saving them in the existing native mapping. Copy field references, not credential values or a whole-item web link; UUID references are preferable because vault/item renames do not break them. The existing service account or desktop authentication stays under Hermes' control.
 
-The plugin reads final credentials through `agent.secret_scope`. Setup delegates a refresh to Hermes' public, profile-scoped secret-source API. It does not open credential files, invoke `op`, read keychains, write secrets into YAML/`.env`, or load another profile's secrets. A missing bound secret never borrows a process-level credential. Ordinary status/diagnostic commands remain offline.
+The plugin reads final credentials through `agent.secret_scope`. Standard setup accepts credentials already available through any supported Hermes profile secret source. For 1Password references, Hermes handles the refresh. The token option uses Hermes' native credential writer to save the exchanged credentials. The temporary token stays out of configuration and logs. A missing bound secret never borrows a process-level credential. Ordinary status and diagnostic commands remain offline.
 
 With the intended profile selected:
 
